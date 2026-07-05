@@ -1,0 +1,635 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   tty.news design system - a glowing CRT terminal in a dark room.
+   Green phosphor on a black screen. IBM VGA 8x16 cell grid (1ch = 8px @ 16px).
+   Emphasis vocabulary: reverse video, ALL CAPS, box chars. Never bold/italic.
+   Font: "The Ultimate Oldschool PC Font Pack" by VileR (int10h.org), CC BY-SA 4.0.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: "IBM VGA";
+  src: url("/fonts/WebPlus_IBM_VGA_8x16.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --screen: #000000; /* the dark CRT glass - page background */
+  --phosphor: #33ff33; /* P1 green-screen phosphor - the glowing text */
+  --alert: #cc0000; /* reserved EXCLUSIVELY for severe weather */
+  --alert-text: #ffffff; /* text on alert-red - stays light for contrast, never inverts */
+
+  --font-term: "IBM VGA", ui-monospace, "Courier New", monospace;
+  --fs-1: 16px;  /* base = one VGA cell */
+  --fs-2: 32px;  /* big temp, section emphasis */
+  --fs-3: 48px;  /* error hero */
+  --lh-art: 1;
+  --lh-text: 1.5; /* 24px - stays on the 8px rhythm */
+
+  --page-max: 100ch; /* 800px - a wide DOS screen */
+  --sp-1: 8px;
+  --sp-2: 16px;
+  --sp-3: 24px;
+  --sp-4: 32px;
+  --sp-6: 48px;
+
+  --border-panel: 3px double var(--phosphor);
+  --border-rule: 1px solid var(--phosphor);
+}
+
+/* ── Reset & base ─────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--screen);
+  color: var(--phosphor);
+  font: var(--fs-1) / var(--lh-text) var(--font-term);
+  font-variant-ligatures: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+figure {
+  margin: 0;
+  padding: 0;
+  font-size: var(--fs-1);
+  font-weight: normal;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+pre,
+.ascii {
+  font-family: var(--font-term);
+  line-height: var(--lh-art);
+  white-space: pre;
+  margin: 0;
+}
+
+/* ── Terminal vocabulary ──────────────────────────────────────────────── */
+
+.rv {
+  background: var(--phosphor);
+  color: var(--screen);
+  padding: 0 1ch;
+}
+
+.rv-alert {
+  background: var(--alert);
+  color: var(--alert-text);
+  padding: 0 1ch;
+}
+
+::selection {
+  background: var(--phosphor);
+  color: var(--screen);
+}
+
+.rv::selection,
+.rv *::selection {
+  background: var(--screen);
+  color: var(--phosphor);
+}
+
+a {
+  color: var(--phosphor);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  background: var(--phosphor);
+  color: var(--screen);
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 3px solid var(--phosphor);
+  outline-offset: 2px;
+}
+
+input,
+button {
+  font: inherit;
+  color: var(--phosphor);
+  background: var(--screen);
+  border: var(--border-rule);
+  border-radius: 0;
+  padding: 0 1ch;
+  caret-color: var(--phosphor);
+}
+
+button {
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+button:hover,
+button:active {
+  background: var(--phosphor);
+  color: var(--screen);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cursor::after {
+    content: "_";
+    animation: blink 1.06s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
+/* ── Page column ──────────────────────────────────────────────────────── */
+
+.page {
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding: 0 2ch var(--sp-6);
+}
+
+/* ── Status bar (full-bleed reverse video, Norton Commander style) ────── */
+
+.status-bar {
+  background: var(--phosphor);
+  color: var(--screen);
+  display: flex;
+  justify-content: space-between;
+  gap: 2ch;
+  padding: var(--sp-1) 2ch;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-bar .sb-place {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+
+.masthead {
+  display: block;
+  margin: var(--sp-4) auto var(--sp-1);
+  width: fit-content;
+  font-size: var(--fs-1);
+}
+
+.tagline {
+  text-align: center;
+  text-transform: uppercase;
+  margin-bottom: var(--sp-3);
+}
+
+@media (max-width: 719px) {
+  .masthead {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 479px) {
+  .masthead {
+    font-size: 8px;
+  }
+}
+
+/* ── Zip form ─────────────────────────────────────────────────────────── */
+
+.zip-form {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 1ch;
+  margin-bottom: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.zip-form label {
+  /* lowercase - an authentic unix shell prompt (guest@tty:~$ locate) */
+  text-transform: none;
+}
+
+.zip-form input {
+  /* accepts a zip or "city, state" - wide enough for a typical city name */
+  width: 24ch;
+  max-width: 100%;
+}
+
+/* ── Alert banner ─────────────────────────────────────────────────────── */
+
+.alert-banner {
+  margin-bottom: var(--sp-3);
+}
+
+.alert-row {
+  padding: var(--sp-1) 2ch;
+  margin-bottom: 2px;
+}
+
+.alert-row.is-urgent {
+  background: var(--alert);
+  color: var(--alert-text);
+}
+
+.alert-row.is-minor {
+  background: var(--phosphor);
+  color: var(--screen);
+}
+
+.alert-row a {
+  color: inherit;
+}
+
+.alert-row a:hover {
+  background: var(--screen);
+  color: var(--phosphor);
+}
+
+/* ── Current weather glance ───────────────────────────────────────────── */
+
+.glance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2) 4ch;
+  border-top: var(--border-rule);
+  border-bottom: var(--border-rule);
+  padding: var(--sp-2) 0;
+  margin-bottom: var(--sp-4);
+}
+
+.glance-temp {
+  font-size: var(--fs-2);
+  line-height: 1;
+}
+
+.glance-cond {
+  text-transform: uppercase;
+}
+
+.glance-meta {
+  line-height: var(--lh-text);
+}
+
+.glance-clock {
+  text-align: right;
+  line-height: var(--lh-text);
+}
+
+.glance-clock .clock-time {
+  font-size: var(--fs-2);
+  line-height: 1;
+}
+
+/* ── Panels ───────────────────────────────────────────────────────────── */
+
+.panel {
+  position: relative;
+  border: var(--border-panel);
+  margin-top: var(--sp-4);
+}
+
+.panel-title {
+  position: absolute;
+  top: -0.75em;
+  left: 2ch;
+  background: var(--screen);
+  padding: 0 1ch;
+  text-transform: uppercase;
+  font-size: var(--fs-1);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.panel-body {
+  padding: var(--sp-3) 2ch var(--sp-2);
+}
+
+.panel-stamp {
+  text-align: right;
+  padding: 0 2ch var(--sp-1);
+}
+
+.empty {
+  text-align: center;
+  padding: var(--sp-2) 0;
+}
+
+/* ── Summary bulletin ─────────────────────────────────────────────────── */
+
+.summary-text {
+  line-height: var(--lh-text);
+}
+
+/* ── Forecast row ─────────────────────────────────────────────────────── */
+
+.forecast {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 16ch;
+  list-style: none;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--phosphor) var(--screen);
+  padding-bottom: var(--sp-1);
+}
+
+.fc-day {
+  scroll-snap-align: start;
+  text-align: center;
+  padding: 0 1ch var(--sp-1);
+}
+
+.fc-day + .fc-day {
+  border-left: var(--border-rule);
+}
+
+.fc-dow {
+  margin-bottom: var(--sp-1);
+  white-space: nowrap;
+}
+
+.fc-day .ascii {
+  display: inline-block;
+  text-align: left;
+}
+
+.fc-temps {
+  margin-top: var(--sp-1);
+  white-space: nowrap;
+}
+
+.fc-hi {
+  background: var(--phosphor);
+  color: var(--screen);
+  padding: 0 0.5ch;
+}
+
+.fc-lo {
+  margin-left: 1ch;
+}
+
+.fc-precip {
+  white-space: nowrap;
+}
+
+/* ── News list ────────────────────────────────────────────────────────── */
+
+.list-note {
+  text-transform: uppercase;
+  border-bottom: var(--border-rule);
+  padding-bottom: var(--sp-1);
+  margin-bottom: var(--sp-1);
+  cursor: help;
+}
+
+.news-item {
+  display: grid;
+  grid-template-columns: 4ch 1fr;
+  gap: 0 1ch;
+  padding: var(--sp-1) 0;
+}
+
+.news-item + .news-item {
+  border-top: var(--border-rule);
+}
+
+.news-rank {
+  background: var(--phosphor);
+  color: var(--screen);
+  text-align: center;
+  align-self: start;
+}
+
+.news-headline {
+  line-height: var(--lh-text);
+}
+
+.news-meta {
+  grid-column: 2;
+  text-transform: uppercase;
+}
+
+/* ── Widget grid ──────────────────────────────────────────────────────── */
+
+/* auto-fit: a lone panel fills the row, pairs sit side-by-side, everything
+   stacks on narrow screens (min() keeps the min-track from overflowing mobile). */
+.widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 0 3ch;
+  align-items: start;
+}
+
+.aqi-value {
+  font-size: var(--fs-2);
+  line-height: 1;
+}
+
+.aqi-line {
+  display: flex;
+  align-items: baseline;
+  gap: 2ch;
+  flex-wrap: wrap;
+}
+
+.aqi-cat {
+  text-transform: uppercase;
+}
+
+.li-row {
+  padding: var(--sp-1) 0;
+  line-height: var(--lh-text);
+}
+
+.li-row + .li-row {
+  border-top: var(--border-rule);
+}
+
+.li-sub {
+  text-transform: uppercase;
+}
+
+/* ── Scores ───────────────────────────────────────────────────────────── */
+
+.score-row {
+  display: grid;
+  grid-template-columns: 5ch 1fr auto auto;
+  gap: 0 1.5ch;
+  align-items: baseline;
+}
+
+.score-league {
+  text-transform: uppercase;
+}
+
+.score-match {
+  letter-spacing: 0.5px;
+}
+
+.score-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.score-num.is-live {
+  background: var(--phosphor);
+  color: var(--screen);
+  padding: 0 0.5ch;
+}
+
+.score-detail {
+  text-transform: uppercase;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 479px) {
+  .score-row {
+    grid-template-columns: 4ch 1fr auto;
+  }
+  .score-detail {
+    grid-column: 2 / 4;
+    text-align: left;
+  }
+}
+
+/* ── Pollen ───────────────────────────────────────────────────────────── */
+
+.pollen-row {
+  display: grid;
+  grid-template-columns: 7ch auto 1fr;
+  gap: 0 1.5ch;
+  align-items: baseline;
+  padding: var(--sp-1) 0;
+}
+
+.pollen-row + .pollen-row {
+  border-top: var(--border-rule);
+}
+
+.pollen-cat {
+  text-transform: uppercase;
+}
+
+/* ── Election ─────────────────────────────────────────────────────────── */
+
+.election-links {
+  margin-top: var(--sp-1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 2ch;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+
+.site-footer {
+  margin-top: var(--sp-6);
+  border-top: var(--border-rule);
+  padding-top: var(--sp-2);
+}
+
+.footer-rule {
+  text-align: center;
+  margin-bottom: var(--sp-2);
+}
+
+.sources li {
+  line-height: var(--lh-text);
+}
+
+.stamps {
+  margin-top: var(--sp-2);
+  text-transform: uppercase;
+}
+
+/* ── Landing / error pages ────────────────────────────────────────────── */
+
+.hero {
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--sp-3);
+}
+
+.hero-code {
+  font-size: var(--fs-1);
+}
+
+.hero-msg {
+  text-transform: uppercase;
+}
+
+/* ── SEO crawl-graph UI: breadcrumbs · state directory · city hub ───────── */
+
+.crumbs {
+  margin-top: var(--sp-1);
+}
+
+.crumb-sep {
+  margin: 0 var(--sp-1);
+  opacity: 0.7;
+}
+
+.crumb-current {
+  opacity: 0.85;
+}
+
+/* Site-wide state directory in the footer - the internal crawl mesh. */
+.browse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+/* State-hub city directory - compact multi-column list of links. */
+.city-list {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  columns: 16ch;
+  column-gap: var(--sp-3);
+}
+
+.city-list li {
+  break-inside: avoid;
+  margin-bottom: var(--sp-1);
+}

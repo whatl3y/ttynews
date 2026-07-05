@@ -1,0 +1,131 @@
+//- Conditional widgets: alerts banner, AQI, events, earthquakes.
+
+mixin alertBanner(alerts)
+  .alert-banner
+    each a in alerts
+      .alert-row(class=(a.isUrgent ? 'is-urgent' : 'is-minor') role=(a.isUrgent ? 'alert' : null))
+        span(aria-hidden="true")= '!! '
+        span= a.event.toUpperCase()
+        if a.expires
+          |  - #{a.expires}
+        if a.headline
+          .alert-headline= a.headline
+
+mixin aqiPanel(aqi, refreshed)
+  +boxPanel('AIR QUALITY', { id: 'aqi', refreshed: refreshed })
+    .aqi-line
+      span.aqi-value= aqi.value
+      pre.ascii(aria-hidden="true")= aqi.gauge
+      span.aqi-cat= aqi.category
+    div= aqi.pollutant
+
+mixin pollenPanel(pollen)
+  +boxPanel('POLLEN', { id: 'pollen' })
+    ul(role="list")
+      each t in pollen.types
+        li.pollen-row
+          span.pollen-name= t.name
+          pre.ascii(aria-hidden="true")= t.gauge
+          span.pollen-cat= t.category
+
+mixin placesPanel(places)
+  +boxPanel('FOOD & DRINK NEARBY', { id: 'places' })
+    ul(role="list")
+      each p in places
+        li.li-row
+          if p.website
+            a(href=p.website target="_blank" rel="noopener noreferrer")= p.name
+          else
+            span= p.name
+          .li-sub
+            | #{p.category}
+            if p.distance
+              |  · #{p.distance}
+            if p.address
+              |  · #{p.address}
+
+mixin parksPanel(parks)
+  +boxPanel('PARKS', { id: 'parks' })
+    ul(role="list")
+      each p in parks
+        li.li-row
+          a(href=p.url target="_blank" rel="noopener noreferrer")= p.name
+          .li-sub
+            | #{p.designation}
+            if p.distance
+              |  · #{p.distance}
+
+mixin campsPanel(camps)
+  +boxPanel('CAMPGROUNDS', { id: 'camps' })
+    ul(role="list")
+      each c in camps
+        li.li-row
+          if c.url
+            a(href=c.url target="_blank" rel="noopener noreferrer")= c.name
+          else
+            span= c.name
+          .li-sub
+            | #{c.type}
+            if c.distance
+              |  · #{c.distance}
+
+mixin electionPanel(election)
+  +boxPanel('ELECTION', { id: 'election' })
+    .election-head
+      span.rv UPCOMING
+      |  #{election.name}
+    .li-sub= election.day
+    .election-links
+      if election.registrationUrl
+        a(href=election.registrationUrl target="_blank" rel="noopener noreferrer") [REGISTER]
+      if election.pollingUrl
+        a(href=election.pollingUrl target="_blank" rel="noopener noreferrer") [FIND POLLING]
+      if election.ballotUrl
+        a(href=election.ballotUrl target="_blank" rel="noopener noreferrer") [YOUR BALLOT]
+
+mixin eventsList(events, refreshed)
+  +boxPanel('UPCOMING EVENTS', { id: 'events', refreshed: refreshed })
+    ul(role="list")
+      each e in events
+        li.li-row
+          if e.url
+            a(href=e.url target="_blank" rel="noopener noreferrer")= e.name
+          else
+            span= e.name
+          .li-sub
+            if e.dateLabel
+              | #{e.dateLabel}
+            if e.venue
+              |  · #{e.venue}
+
+mixin quakesList(quakes)
+  +boxPanel('SEISMIC', { id: 'quakes' })
+    ul(role="list")
+      each q in quakes
+        li.li-row
+          a(href=q.url target="_blank" rel="noopener noreferrer") M#{q.magnitude}
+          |  #{q.place}
+          .li-sub
+            +relTime(q.timeIso, q.relTime)
+
+mixin nearbyPanel(nearby)
+  +boxPanel('NEARBY ZIP CODES', { id: 'nearby' })
+    ul(role="list")
+      each z in nearby
+        li.li-row
+          a(href="/" + z.zip)= z.zip + ' · ' + z.city + ', ' + z.state
+          .li-sub #{z.distanceMi} MI
+
+mixin sportsList(games)
+  +boxPanel('LOCAL SCORES', { id: 'sports' })
+    ul(role="list")
+      each g in games
+        li.li-row.score-row
+          span.score-league= g.league
+          span.score-match= g.matchup
+          if g.score
+            span.score-num(class=(g.isLive ? 'is-live' : null))= g.score
+          span.score-detail
+            if g.isLive
+              span.rv-alert(aria-hidden="true")= 'LIVE '
+            span= g.detail

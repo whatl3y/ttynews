@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.env.local
+data/GeoLite2-City.mmdb
+*.log
+.DS_Store

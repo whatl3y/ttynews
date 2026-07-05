@@ -1,0 +1,19 @@
+//- Ranked local stories: reverse-video rank, headline link, source + age.
+
+mixin newsList(stories, refreshed)
+  +boxPanel('TOP STORIES', { id: 'news', refreshed: refreshed })
+    if stories && stories.length
+      p.list-note(title="Scored by Google News significance rank + how many independent local outlets carry the story, then weighted toward fresher stories.") ranked by local significance + cross-source pickup · freshness-weighted
+      ol(role="list")
+        each s in stories
+          li.news-item
+            span.news-rank(aria-hidden="true")= (s.rank < 10 ? '0' + s.rank : s.rank)
+            .news-headline
+              a(href=s.url target="_blank" rel="noopener noreferrer")= s.title
+            .news-meta
+              | #{s.source}
+              if s.relTime
+                =' · '
+                +relTime(s.publishedIso, s.relTime)
+    else
+      +emptyState('0 STORIES FOUND')

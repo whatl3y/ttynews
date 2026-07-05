@@ -1,0 +1,59 @@
+//- Header pieces: status bar, masthead, zip form, current-weather glance.
+
+mixin statusBar(place, now)
+  .status-bar(aria-hidden="true")
+    span.sb-name= siteName
+    span.sb-place #{place.zip} · #{place.city.toUpperCase()}, #{place.state}
+    span.sb-date= now.date
+
+mixin masthead(art)
+  h1.sr-only= siteName
+  pre.masthead(aria-hidden="true")= art
+
+//- Home › State › City trail. Real anchors - internal links + a Breadcrumb rich result.
+mixin breadcrumb(crumb)
+  nav.crumbs(aria-label="Breadcrumb")
+    a(href="/")= siteName
+    span.crumb-sep(aria-hidden="true") ›
+    a(href="/" + crumb.stateCode)= crumb.stateName
+    span.crumb-sep(aria-hidden="true") ›
+    span.crumb-current= crumb.current
+
+mixin zipForm(zip)
+  form.zip-form(action="/" method="get")
+    label(for="zip-input") guest@tty:~$ locate
+    input#zip-input(
+      type="text"
+      name="q"
+      autocomplete="off"
+      autocapitalize="words"
+      maxlength="64"
+      placeholder="zip or city, st"
+      aria-label="Enter a zip code or a city and state"
+    )
+    button(type="submit") Enter
+
+mixin currentWx(current, now, place)
+  .glance
+    if current
+      +asciiArt(current.icon)
+      div
+        .glance-temp #{current.tempF}°F
+        .glance-cond= current.condition
+      .glance-meta
+        if current.feelsLikeF != null
+          div FEELS #{current.feelsLikeF}°
+        if current.windMph != null
+          div WIND #{current.windMph} MPH
+        if current.humidityPct != null
+          div HUMID #{current.humidityPct}%
+      .glance-meta
+        if current.sunrise
+          div ↑ #{current.sunrise}
+        if current.sunset
+          div ↓ #{current.sunset}
+        if current.moonPhaseName
+          div= current.moonPhaseName
+    .glance-clock
+      .clock-time.cursor#clock(data-tz=place.timezone)= now.time
+      div #{now.tzAbbr} · LOCAL TIME

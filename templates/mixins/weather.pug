@@ -1,0 +1,17 @@
+//- 10-day forecast row: fixed-width character cards, horizontal scroll + snap.
+
+mixin forecastRow(days, provider)
+  if days && days.length
+    +boxPanel((days.length >= 8 ? '10-DAY FORECAST' : 'FORECAST'), { id: 'forecast' })
+      ol.forecast(role="list")
+        each d in days
+          li.fc-day
+            .fc-dow
+              span.rv= d.dow
+              |  #{d.dateLabel}
+            +asciiArt(d.icon)
+            .fc-temps
+              span.fc-hi #{d.hiF}°
+              span.fc-lo #{d.loF}°
+            if d.precipPct != null && d.precipPct > 0
+              .fc-precip ▒ #{d.precipPct}%

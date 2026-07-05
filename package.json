@@ -1,0 +1,44 @@
+{
+  "name": "ttynews",
+  "version": "1.0.0",
+  "description": "tty.news - a zip-code local happenings terminal. Weather, news, and current events for any US zip, rendered like it's 1987.",
+  "main": "dist/webServer.js",
+  "packageManager": "pnpm@10.28.1",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/webServer.ts",
+    "start": "node dist/webServer.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "refresh-zips": "ts-node src/tasks/refreshZips.ts",
+    "build-sports-teams": "ts-node src/tasks/buildSportsTeams.ts",
+    "download-geolite": "ts-node src/tasks/downloadGeolite.ts",
+    "download-geolite:prod": "node dist/tasks/downloadGeolite.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39",
+    "@types/pug": "^2.0.10",
+    "adm-zip": "^0.5.16",
+    "bunyan": "^1.8",
+    "dotenv": "^16",
+    "express": "^4",
+    "geo-tz": "^8",
+    "ioredis": "^5",
+    "maxmind": "^4",
+    "pug": "^3.0.3",
+    "rss-parser": "^3.13",
+    "suncalc": "^1.9",
+    "tar": "^7"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/bunyan": "^1",
+    "@types/express": "^4",
+    "@types/node": "^22",
+    "@types/suncalc": "^1.9",
+    "ts-node": "^10",
+    "typescript": "^5",
+    "vitest": "^3"
+  }
+}

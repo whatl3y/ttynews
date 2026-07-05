@@ -1,0 +1,19 @@
+extends layout
+include mixins/panel
+include mixins/header
+
+block content
+  .page
+    .hero
+      if statusCode === 404
+        pre.masthead(aria-hidden="true")= masthead404
+        h1.sr-only 404 - not found
+        p.hero-msg NO CARRIER
+        if zip
+          p ZIP "#{zip}" IS NOT IN THE DATABASE.
+      else
+        h1.hero-code.rv ERROR #{statusCode}
+        p.hero-msg ABORT, RETRY, FAIL?
+      +zipForm(null)
+      p
+        a(href="/") &lt;&lt; RETURN TO START

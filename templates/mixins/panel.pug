@@ -1,0 +1,30 @@
+//- Shared panel chrome + primitives. Every widget builds on these.
+
+//- Double-border panel with a ╡ TITLE ╞ tab welded onto the top border.
+//- opts: { id?, variant?: 'default'|'alert', refreshed?: string }
+mixin boxPanel(title, opts)
+  - opts = opts || {}
+  section.panel(id=opts.id)
+    h2.panel-title
+      span(aria-hidden="true") ╡
+      = title
+      span(aria-hidden="true")  ╞
+    .panel-body
+      block
+    if opts.refreshed
+      .panel-stamp(aria-hidden="true") @ #{opts.refreshed}
+
+//- ASCII art with enforced accessibility: art hidden, label spoken.
+mixin asciiArt(icon)
+  pre.ascii(aria-hidden="true")= icon.art
+  span.sr-only= icon.label
+
+//- <time> with machine-readable datetime for the client-side refresher.
+mixin relTime(iso, text)
+  if iso
+    time(datetime=iso data-reltime)= text
+  else
+    span= text
+
+mixin emptyState(msg)
+  p.empty [ NO DATA - #{msg} ]

@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: 'redis:7-alpine'
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+
+  app:
+    restart: always
+    build: .
+    depends_on:
+      - redis
+    ports:
+      - '8000:8000'
+    # Works with zero configuration - .env is optional and only needed for
+    # the enhancement keys (MaxMind, AirNow, Ticketmaster, Anthropic).
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PORT=8000
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      # Bind-mount data/ so `docker compose run --rm app node dist/tasks/downloadGeolite.js`
+      # persists the GeoLite2 mmdb across container rebuilds.
+      - ./data:/app/data
+
+volumes:
+  redisdata:

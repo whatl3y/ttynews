@@ -1,0 +1,38 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    meta(name="theme-color" content="#000000")
+    title= metaTitle
+    meta(name="description" content=metaDesc)
+    meta(name="robots" content=(robots || 'index, follow'))
+    if canonicalPath != null
+      link(rel="canonical" href=siteUrl + canonicalPath)
+    //- Open Graph
+    meta(property="og:type" content="website")
+    meta(property="og:site_name" content=siteName)
+    meta(property="og:title" content=metaTitle)
+    meta(property="og:description" content=metaDesc)
+    meta(property="og:locale" content="en_US")
+    if canonicalPath != null
+      meta(property="og:url" content=siteUrl + canonicalPath)
+    meta(property="og:image" content=(ogImage || (siteUrl + '/og.svg')))
+    meta(property="og:image:type" content="image/svg+xml")
+    meta(property="og:image:alt" content=siteName + " - local happenings terminal")
+    //- Twitter / X card
+    meta(name="twitter:card" content="summary_large_image")
+    meta(name="twitter:title" content=metaTitle)
+    meta(name="twitter:description" content=metaDesc)
+    meta(name="twitter:image" content=(ogImage || (siteUrl + '/og.svg')))
+    link(rel="icon" type="image/svg+xml" href="/favicon.svg")
+    link(rel="preload" href="/fonts/WebPlus_IBM_VGA_8x16.woff" as="font" type="font/woff" crossorigin)
+    if structuredData
+      each blob in structuredData
+        script(type="application/ld+json")!= blob
+    block head
+    style
+      include styles/main.css
+  body
+    block content
+    block scripts

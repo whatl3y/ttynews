@@ -1,0 +1,26 @@
+extends layout
+include mixins/panel
+include mixins/header
+include mixins/footer
+
+block content
+  .page
+    header(role="banner")
+      +masthead(masthead)
+      nav.crumbs(aria-label="Breadcrumb")
+        a(href="/")= siteName
+        span.crumb-sep(aria-hidden="true") ›
+        span.crumb-current= stateName
+      p.tagline Local news &amp; weather by city across #{stateName}
+      +zipForm(null)
+
+    main
+      +boxPanel('CITIES IN ' + stateName.toUpperCase(), { id: 'cities' })
+        p.list-note #{cities.length} cities - pick one, or enter any #{stateName} zip or "city, #{stateCode.toUpperCase()}" above
+        ul.city-list(role="list")
+          each c in cities
+            li
+              a(href="/" + c.zip)= c.city
+
+    footer.site-footer
+      +browseNav

@@ -1,0 +1,40 @@
+//- Data-source attributions + per-widget refresh stamps.
+//- Only credits a license or API contract legally REQUIRES a visible attribution for remain here.
+//- Intentionally omitted (no attribution obligation): US-govt public-domain data (NWS/NOAA, USGS,
+//- National Park Service, Recreation.gov); no-license sources (ESPN endpoints, Google News,
+//- Ticketmaster Discovery ToS, Google Civic - "optional" per Google). wego's ISC notice is retained
+//- in src/libs/asciiArt.ts, so it needs no footer line.
+
+//- Site-wide state directory: every page links to all 50 state hubs, which in
+//- turn link to their cities' zip pages - the internal crawl mesh.
+mixin browseNav
+  if states && states.length
+    nav.browse(aria-label="Local pages by state")
+      span.browse-label(aria-hidden="true") BROWSE BY STATE:
+      each s in states
+        a(href="/" + s.code.toLowerCase() title=s.name)= s.code
+
+mixin footerAttribution(attribution)
+  footer.site-footer
+    +browseNav
+    .footer-rule(aria-hidden="true") · ─ ·
+    h2.sr-only Data sources and credits
+    ul.sources(role="list")
+      li WEATHER + AQI: #[a(href="https://open-meteo.com/" rel="noopener") Weather data by Open-Meteo.com] (CC BY 4.0)
+      li EVENTS: #[a(href="https://seatgeek.com" rel="noopener") Powered by SeatGeek]
+      li FOOD &amp; DRINK: #[a(href="https://foursquare.com" rel="noopener") Powered by Foursquare]
+      li POLLEN: Source: Includes pollen data from Google
+      li GEO: This product includes GeoLite2 data created by MaxMind, available from #[a(href="https://www.maxmind.com" rel="noopener") www.maxmind.com]; place data from #[a(href="https://www.geonames.org/" rel="noopener") GeoNames] (CC BY 4.0)
+      li TYPE: #[a(href="https://int10h.org/oldschool-pc-fonts/" rel="noopener") The Ultimate Oldschool PC Font Pack] by VileR (CC BY-SA 4.0)
+    if attribution && attribution.refreshed
+      - const r = attribution.refreshed
+      p.stamps(aria-hidden="true")
+        | LAST REFRESH
+        if r.weather
+          |  - WX @ #{r.weather}
+        if r.news
+          |  - NEWS @ #{r.news}
+        if r.aqi
+          |  - AQI @ #{r.aqi}
+        if r.events
+          |  - EVENTS @ #{r.events}

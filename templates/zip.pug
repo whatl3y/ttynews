@@ -1,0 +1,59 @@
+extends layout
+include mixins/panel
+include mixins/header
+include mixins/weather
+include mixins/news
+include mixins/widgets
+include mixins/footer
+
+block content
+  .page
+    header(role="banner")
+      +statusBar(place, now)
+      +masthead(masthead)
+      if breadcrumb
+        +breadcrumb(breadcrumb)
+      p.tagline What's happening around #{place.city}, #{place.state} right now
+      +zipForm(place.zip)
+      if alerts && alerts.length
+        +alertBanner(alerts)
+      +currentWx(current, now, place)
+
+    main
+      if summary
+        +boxPanel('BULLETIN', { id: 'bulletin' })
+          p.summary-text= summary
+      +forecastRow(forecast, provider)
+      if aqi || pollen
+        .widget-grid
+          if aqi
+            +aqiPanel(aqi, attribution.refreshed.aqi)
+          if pollen
+            +pollenPanel(pollen)
+      +newsList(news, attribution.refreshed.news)
+      if sports && sports.length
+        +sportsList(sports)
+      if events && events.length
+        +eventsList(events, attribution.refreshed.events)
+      if (places && places.length) || (parks && parks.length) || (camps && camps.length)
+        .widget-grid
+          if places && places.length
+            +placesPanel(places)
+          if parks && parks.length
+            +parksPanel(parks)
+          if camps && camps.length
+            +campsPanel(camps)
+      if (quakes && quakes.length) || election
+        .widget-grid
+          if quakes && quakes.length
+            +quakesList(quakes)
+          if election
+            +electionPanel(election)
+      if nearby && nearby.length
+        +nearbyPanel(nearby)
+
+    +footerAttribution(attribution)
+
+block scripts
+  script
+    include scripts/zip.js

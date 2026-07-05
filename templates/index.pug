@@ -1,0 +1,13 @@
+extends layout
+include mixins/panel
+include mixins/header
+
+block content
+  .page
+    .hero
+      +masthead(masthead)
+      p.hero-msg Live local news · weather · happenings - for any US zip code
+      if badQuery
+        p.rv "#{badQuery}" NOT FOUND - TRY A ZIP OR "CITY, ST"
+      +zipForm(null)
+      p(aria-hidden="true").cursor READY.
