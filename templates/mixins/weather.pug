@@ -11,7 +11,7 @@ mixin forecastRow(days, provider)
               |  #{d.dateLabel}
             +asciiArt(d.icon)
             .fc-temps
-              span.fc-hi #{d.hiF}°
-              span.fc-lo #{d.loF}°
+              span.fc-hi= d.hi
+              span.fc-lo= d.lo
             if d.precipPct != null && d.precipPct > 0
               .fc-precip ▒ #{d.precipPct}%

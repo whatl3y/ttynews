@@ -2,8 +2,8 @@
 
 > A zip-code "local happenings" terminal. Server-rendered Express + Pug site that geolocates a
 > visitor's IP to a US zip code and serves a fast, ASCII-heavy "what's happening right now" page.
-> Any zip addressable at `/:zipCode`. Aesthetic: 80s IBM PC terminal, inverted - pure black text
-> on a pure white page, self-hosted int10h VGA font, ASCII art instead of images.
+> Any zip addressable at `/:zipCode`. Aesthetic: 80s IBM PC terminal - glowing green phosphor
+> (`#33FF33`) on a black CRT screen, self-hosted int10h VGA font, ASCII art instead of images.
 >
 > This document is the master implementation plan. It was produced from a research phase whose
 > data-source claims were **live-verified in July 2026** (exact URLs fetched and responses
@@ -466,7 +466,7 @@ interface PageData { zip; city; state; timezone; lat; lon; summary: string|null;
 | Question | Decision |
 |---|---|
 | Widget composition | **Mixins with explicit args** (enforceable data contract), one thematic file per area |
-| Panel chrome | **CSS `3px double` black border** (reads as DOS `═║`) + literal `╡ TITLE ╞` tab positioned over the border (legend trick). Full-perimeter literal box chars rejected - break responsively |
+| Panel chrome | **CSS `3px double` phosphor-green border** (reads as DOS `═║`) + literal `╡ TITLE ╞` tab positioned over the border (legend trick). Full-perimeter literal box chars rejected - break responsively |
 | CSS delivery | Inlined via `style include styles/main.css` (jeffreyepstein convention; one payload) |
 | Font | Self-hosted `WebPlus_IBM_VGA_8x16.woff` ONLY (WebPlus = Unicode-extended, covers box chars). Stack: `'IBM VGA', ui-monospace, 'Courier New', monospace`. No CDN fallback (metric mismatch causes reflow) |
 | Palette | Pure `#FFFFFF`/`#000000` + reverse video; single accent `#CC0000` **reserved exclusively for severe alerts** |
@@ -554,7 +554,7 @@ panel.pug    boxPanel(title, opts?{id, variant:'default'|'alert', refreshed})  -
 header.pug   statusBar(place, now) · masthead(art) · zipForm(zip) · clockLine(now, tz) · currentWx(current, now)
 weather.pug  forecastRow(days)
 news.pug     newsList(stories)           - boxPanel('TOP STORIES') > ol > rank(.rv) + link + source + relTime
-widgets.pug  alertBanner(alerts)         - red reverse video Extreme/Severe (+role="alert"), black reverse Minor/Moderate, "!! " prefix
+widgets.pug  alertBanner(alerts)         - red reverse video Extreme/Severe (+role="alert"), green reverse-video Minor/Moderate, "!! " prefix
              aqiPanel(aqi) · eventsList(events) · quakesList(quakes)
 footer.pug   footerAttribution(attribution)
 ```
@@ -587,26 +587,27 @@ Other art: empty states `[ NO DATA - 0 STORIES FOUND ]`; 404 = figlet "404" + `N
 @font-face { font-family: 'IBM VGA'; src: url('/fonts/WebPlus_IBM_VGA_8x16.woff') format('woff');
              font-weight: normal; font-style: normal; font-display: swap; }
 :root {
-  --paper: #FFFFFF;  --ink: #000000;  --alert: #CC0000;   /* red = severe weather ONLY */
+  --screen: #000000; --phosphor: #33FF33;                 /* green phosphor glowing on a black CRT */
+  --alert: #CC0000;  --alert-text: #FFFFFF;               /* red = severe weather ONLY; white text never inverts */
   --font-term: 'IBM VGA', ui-monospace, 'Courier New', monospace;
   --fs-1: 16px;  --fs-2: 32px;  --fs-3: 48px;             /* stepped px only - integer cell multiples */
   --lh-art: 1;   --lh-text: 1.5;                          /* 24px prose = on the 8px rhythm */
   --page-max: 100ch;
   --sp-1: 8px; --sp-2: 16px; --sp-3: 24px; --sp-4: 32px; --sp-6: 48px;
-  --border-panel: 3px double var(--ink);  --border-rule: 1px solid var(--ink);
+  --border-panel: 3px double var(--phosphor);  --border-rule: 1px solid var(--phosphor);
 }
 ```
 
-- `html { background: var(--paper); color: var(--ink); font: var(--fs-1)/var(--lh-text)
+- `html { background: var(--screen); color: var(--phosphor); font: var(--fs-1)/var(--lh-text)
   var(--font-term); font-variant-ligatures: none; }` · `pre, .ascii { line-height: 1;
   white-space: pre; margin: 0; }`
-- `.rv { background: var(--ink); color: var(--paper); padding: 0 1ch; }` + `.rv-alert` red variant.
-- Links: underline; **hover = reverse video**. Focus: `outline: 3px solid var(--ink)`. Selection
-  inverted. Inputs/buttons: 1px black border, no radius, `font: inherit`, hover = reverse video.
+- `.rv { background: var(--phosphor); color: var(--screen); padding: 0 1ch; }` + `.rv-alert` red variant.
+- Links: underline; **hover = reverse video**. Focus: `outline: 3px solid var(--phosphor)`. Selection
+  inverted. Inputs/buttons: 1px phosphor border, no radius, `font: inherit`, hover = reverse video.
 - Blinking cursor: `.cursor::after { content: "_"; animation: blink 1.06s steps(1) infinite; }`
-  gated by `prefers-reduced-motion`. **No scanline/CRT textures** (noise on white = dirt).
+  gated by `prefers-reduced-motion`. **No scanline/CRT textures** (legibility over skeuomorphism).
 - Panels: `.panel { position: relative; border: var(--border-panel); }` · `.panel-title
-  { position: absolute; top: -0.75em; left: 2ch; background: var(--paper); padding: 0 1ch;
+  { position: absolute; top: -0.75em; left: 2ch; background: var(--screen); padding: 0 1ch;
   text-transform: uppercase; }` with `╡`/`╞` in aria-hidden spans.
 - `.widget-grid { display: grid; gap: 16px; }` → `1fr 1fr` at ≥720px.
 - Forecast row: `display: grid; grid-auto-flow: column; grid-auto-columns: 15ch; overflow-x:
@@ -629,7 +630,7 @@ Other art: empty states `[ NO DATA - 0 STORIES FOUND ]`; 404 = figlet "404" + `N
 - Every `pre.ascii` aria-hidden + adjacent `.sr-only` label (enforced by the `asciiArt` mixin).
 - `header[role=banner] > h1.sr-only`; `main > section` per panel; `h2` panel titles; news as
   `ol > li` with `time` elements. `role="alert"` only on Extreme/Severe.
-- Contrast 21:1; `#CC0000` on white = 5.9:1 (AA).
+- Contrast ~15.5:1 (phosphor `#33FF33` on `#000000`); white text on the `#CC0000` alert = 5.9:1 (AA).
 - Title `{City}, {ST} {zip} - tty.news`; meta description = LLM summary or fallback; canonical
   `/{zip}`; favicon = text-only SVG.
 

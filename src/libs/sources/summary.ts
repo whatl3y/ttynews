@@ -3,6 +3,9 @@ import config from "../../config";
 import log from "../../logger";
 import { getOrSet } from "../cache";
 import { PageData } from "./types";
+import { MeasurementSystem } from "../i18n/countries";
+import { formatTemp } from "../i18n/units";
+import { languageName } from "../i18n/strings";
 
 let client: Anthropic | null = null;
 
@@ -13,14 +16,20 @@ function getClient(): Anthropic | null {
 }
 
 /** Compact plain-text digest of the assembled page data (~600 tokens in). */
-export function buildDigest(data: Omit<PageData, "summary" | "generatedAt">): string {
-  const lines: string[] = [`Location: ${data.city}, ${data.state} ${data.zip}`];
+export function buildDigest(
+  data: Omit<PageData, "summary" | "generatedAt">,
+  m: MeasurementSystem,
+): string {
+  const p = data.place;
+  const lines: string[] = [`Location: ${p.city}, ${p.admin1Name}, ${p.country}`];
 
   if (data.weather) {
     const w = data.weather.current;
-    lines.push(`Weather now: ${w.tempF}F, ${w.condition}`);
+    lines.push(`Weather now: ${formatTemp(w.tempC, m)}, ${w.condition}`);
     const today = data.weather.daily[0];
-    if (today) lines.push(`Today: high ${today.highF}F / low ${today.lowF}F, ${today.condition}`);
+    if (today) {
+      lines.push(`Today: high ${formatTemp(today.highC, m)} / low ${formatTemp(today.lowC, m)}, ${today.condition}`);
+    }
   }
   if (data.alerts?.length) {
     lines.push(`Active weather alerts: ${data.alerts.map((a) => a.event).join("; ")}`);
@@ -43,9 +52,7 @@ export function buildDigest(data: Omit<PageData, "summary" | "generatedAt">): st
     lines.push(`Recent earthquake: M${q.magnitude} ${q.place}`);
   }
   if (data.pollen?.types.length) {
-    lines.push(
-      "Pollen: " + data.pollen.types.map((t) => `${t.name} ${t.category}`).join(", "),
-    );
+    lines.push("Pollen: " + data.pollen.types.map((t) => `${t.name} ${t.category}`).join(", "));
   }
   if (data.sports?.length) {
     const live = data.sports.filter((g) => g.status === "live");
@@ -64,14 +71,21 @@ export function buildDigest(data: Omit<PageData, "summary" | "generatedAt">): st
 }
 
 export async function getSummary(
-  zip: string,
+  cacheKey: string,
   data: Omit<PageData, "summary" | "generatedAt">,
+  opts: { lang: string; measurement: MeasurementSystem },
 ): Promise<string | null> {
   const anthropic = getClient();
   if (!anthropic) return null; // no key → skip silently
 
+  const { lang, measurement } = opts;
+  // Localize the briefing to the place's language (the cheapest high-impact
+  // localization). English stays the default with no extra instruction.
+  const langInstruction =
+    lang && lang !== "en" ? ` Write the entire briefing in ${languageName(lang)} (ISO 639-1 code "${lang}").` : "";
+
   return getOrSet(
-    `sum:v1:${zip}`,
+    `sum:v3:${lang}:${measurement}:${cacheKey}`,
     { ttlSeconds: config.cache.summaryTtl, staleFactor: 2 },
     async () => {
       const msg = await anthropic.messages.create(
@@ -81,8 +95,9 @@ export async function getSummary(
           system:
             "You write a friendly 2-3 sentence 'what's happening locally today' briefing " +
             "from the provided data. Plain text only - no preamble, no markdown, no emoji. " +
-            "Lead with the most notable thing (a severe alert, a big story, or the weather).",
-          messages: [{ role: "user", content: buildDigest(data) }],
+            "Lead with the most notable thing (a severe alert, a big story, or the weather)." +
+            langInstruction,
+          messages: [{ role: "user", content: buildDigest(data, measurement) }],
         },
         { timeout: 8000 },
       );
@@ -93,7 +108,7 @@ export async function getSummary(
       return text.text.trim();
     },
   ).catch((err) => {
-    log.warn({ err, zip }, "summary generation failed");
+    log.warn({ err, cacheKey }, "summary generation failed");
     return null;
   });
 }

@@ -3,7 +3,8 @@
 //- Intentionally omitted (no attribution obligation): US-govt public-domain data (NWS/NOAA, USGS,
 //- National Park Service, Recreation.gov); no-license sources (ESPN endpoints, Google News,
 //- Ticketmaster Discovery ToS, Google Civic - "optional" per Google). wego's ISC notice is retained
-//- in src/libs/asciiArt.ts, so it needs no footer line.
+//- in src/libs/asciiArt.ts, so it needs no footer line. Google Pollen IS required but Google mandates
+//- it next to the data, so it lives in the pollenPanel widget (widgets.pug), not here.
 
 //- Site-wide state directory: every page links to all 50 state hubs, which in
 //- turn link to their cities' zip pages - the internal crawl mesh.
@@ -12,7 +13,7 @@ mixin browseNav
     nav.browse(aria-label="Local pages by state")
       span.browse-label(aria-hidden="true") BROWSE BY STATE:
       each s in states
-        a(href="/" + s.code.toLowerCase() title=s.name)= s.code
+        a(href="/us/" + s.code.toLowerCase() title=s.name)= s.code
 
 mixin footerAttribution(attribution)
   footer.site-footer
@@ -23,7 +24,6 @@ mixin footerAttribution(attribution)
       li WEATHER + AQI: #[a(href="https://open-meteo.com/" rel="noopener") Weather data by Open-Meteo.com] (CC BY 4.0)
       li EVENTS: #[a(href="https://seatgeek.com" rel="noopener") Powered by SeatGeek]
       li FOOD &amp; DRINK: #[a(href="https://foursquare.com" rel="noopener") Powered by Foursquare]
-      li POLLEN: Source: Includes pollen data from Google
       li GEO: This product includes GeoLite2 data created by MaxMind, available from #[a(href="https://www.maxmind.com" rel="noopener") www.maxmind.com]; place data from #[a(href="https://www.geonames.org/" rel="noopener") GeoNames] (CC BY 4.0)
       li TYPE: #[a(href="https://int10h.org/oldschool-pc-fonts/" rel="noopener") The Ultimate Oldschool PC Font Pack] by VileR (CC BY-SA 4.0)
     if attribution && attribution.refreshed

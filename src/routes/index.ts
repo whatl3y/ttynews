@@ -3,8 +3,10 @@ import { asyncHandler } from "../middleware/errorHandler";
 import * as health from "./health";
 import * as seo from "./seo";
 import * as home from "./home";
+import * as prefs from "./prefs";
 import * as api from "./api";
 import * as hubs from "./hubs";
+import * as place from "./place";
 import * as zip from "./zip";
 
 export interface IRoute {
@@ -16,7 +18,7 @@ export interface IRoute {
 
 // Order matters: zip's param route is the loosest match and must bind LAST.
 // hubs (/:state, 2 letters) is disjoint from zip (/:zip, 5 digits) but binds first.
-const ROUTE_MODULES: Record<string, unknown>[] = [health, seo, home, api, hubs, zip];
+const ROUTE_MODULES: Record<string, unknown>[] = [health, seo, home, prefs, api, hubs, place, zip];
 
 export default function bindRoutes(app: Express): void {
   for (const mod of ROUTE_MODULES) {

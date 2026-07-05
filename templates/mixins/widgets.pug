@@ -27,6 +27,10 @@ mixin pollenPanel(pollen)
           span.pollen-name= t.name
           pre.ascii(aria-hidden="true")= t.gauge
           span.pollen-cat= t.category
+    //- Google Maps Platform ToS §3.2.3(b) requires this attribution visible ON/NEXT TO
+    //- the pollen data (not just the footer). Exact string - do NOT paraphrase or restyle
+    //- (no text-transform: Google forbids modifying it). See docs/COMPLIANCE.md §1.2.
+    p.panel-src Source: Includes pollen data from Google
 
 mixin placesPanel(places)
   +boxPanel('FOOD & DRINK NEARBY', { id: 'places' })
@@ -109,12 +113,12 @@ mixin quakesList(quakes)
             +relTime(q.timeIso, q.relTime)
 
 mixin nearbyPanel(nearby)
-  +boxPanel('NEARBY ZIP CODES', { id: 'nearby' })
+  +boxPanel('NEARBY', { id: 'nearby' })
     ul(role="list")
       each z in nearby
         li.li-row
-          a(href="/" + z.zip)= z.zip + ' · ' + z.city + ', ' + z.state
-          .li-sub #{z.distanceMi} MI
+          a(href=z.href)= z.label
+          .li-sub= z.distance
 
 mixin sportsList(games)
   +boxPanel('LOCAL SCORES', { id: 'sports' })

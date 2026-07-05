@@ -11,10 +11,11 @@ block content
     header(role="banner")
       +statusBar(place, now)
       +masthead(masthead)
-      if breadcrumb
-        +breadcrumb(breadcrumb)
-      p.tagline What's happening around #{place.city}, #{place.state} right now
-      +zipForm(place.zip)
+      if crumbs
+        +breadcrumb(crumbs)
+      p.tagline= tagline
+      +zipForm(place.postal)
+      +prefsBar(langOptions, unitsMetric, canonicalPath)
       if alerts && alerts.length
         +alertBanner(alerts)
       +currentWx(current, now, place)

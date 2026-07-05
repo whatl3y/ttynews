@@ -22,6 +22,7 @@ async function fetchAirNow(zip: string): Promise<AirQualityData> {
   const worst = rows.reduce((a, b) => (b.AQI > a.AQI ? b : a));
   return {
     provider: "airnow",
+    scale: "us",
     aqi: worst.AQI,
     category: worst.Category.Name,
     pollutant: worst.ParameterName,
@@ -39,36 +40,70 @@ function usAqiCategory(aqi: number): string {
   return "Hazardous";
 }
 
-async function fetchOpenMeteoAq(lat: number, lon: number): Promise<AirQualityData> {
-  const data = await fetchJson<{ current: { time: string; us_aqi: number } }>(
+// European Air Quality Index (EAQI) bands - different numbers AND labels vs US AQI.
+function euAqiCategory(aqi: number): string {
+  if (aqi <= 20) return "Good";
+  if (aqi <= 40) return "Fair";
+  if (aqi <= 60) return "Moderate";
+  if (aqi <= 80) return "Poor";
+  if (aqi <= 100) return "Very Poor";
+  return "Extremely Poor";
+}
+
+interface OpenMeteoAqResponse {
+  current?: { time: string; us_aqi?: number; european_aqi?: number };
+}
+
+async function fetchOpenMeteoAq(lat: number, lon: number, scale: "us" | "eu"): Promise<AirQualityData> {
+  // Fetch both indices; report the region-appropriate one.
+  const data = await fetchJson<OpenMeteoAqResponse>(
     "https://air-quality-api.open-meteo.com/v1/air-quality" +
-      `?latitude=${lat}&longitude=${lon}&current=us_aqi&timezone=auto`,
+      `?latitude=${lat}&longitude=${lon}&current=us_aqi,european_aqi&timezone=auto`,
   );
-  const aqi = data.current?.us_aqi;
-  if (typeof aqi !== "number") throw new Error("no us_aqi in Open-Meteo AQ response");
+  const cur = data.current;
+  if (!cur) throw new Error("no Open-Meteo AQ current block");
+  if (scale === "eu" && typeof cur.european_aqi === "number") {
+    return {
+      provider: "open-meteo",
+      scale: "eu",
+      aqi: Math.round(cur.european_aqi),
+      category: euAqiCategory(cur.european_aqi),
+      pollutant: "EAQI",
+      observedAt: cur.time,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+  if (typeof cur.us_aqi !== "number") throw new Error("no us_aqi in Open-Meteo AQ response");
   return {
     provider: "open-meteo",
-    aqi: Math.round(aqi),
-    category: usAqiCategory(aqi),
+    scale: "us",
+    aqi: Math.round(cur.us_aqi),
+    category: usAqiCategory(cur.us_aqi),
     pollutant: "US AQI",
-    observedAt: data.current.time,
+    observedAt: cur.time,
     fetchedAt: new Date().toISOString(),
   };
 }
 
+/**
+ * Air quality for a place. AirNow (US EPA stations) when a US zip is available;
+ * otherwise keyless Open-Meteo model data, reported on the region's scale (EAQI in
+ * Europe, US AQI elsewhere).
+ */
 export async function getAirQuality(
-  zip: string,
+  cacheKey: string,
   lat: number,
   lon: number,
+  opts: { usZip?: string; scale: "us" | "eu" },
 ): Promise<AirQualityData | null> {
-  return getOrSet(`aqi:v1:${zip}`, { ttlSeconds: config.cache.aqiTtl }, async () => {
-    if (config.airnow.apiKey) {
+  return getOrSet(`aqi:v2:${opts.scale}:${cacheKey}`, { ttlSeconds: config.cache.aqiTtl }, async () => {
+    if (opts.usZip && config.airnow.apiKey) {
       try {
-        return await fetchAirNow(zip);
+        return await fetchAirNow(opts.usZip);
       } catch (err) {
-        log.warn({ err, zip }, "AirNow failed - falling back to Open-Meteo AQ");
+        log.warn({ err, zip: opts.usZip }, "AirNow failed - falling back to Open-Meteo AQ");
       }
     }
-    return fetchOpenMeteoAq(lat, lon);
+    return fetchOpenMeteoAq(lat, lon, opts.scale);
   });
 }

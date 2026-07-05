@@ -37,33 +37,35 @@ interface OpenMeteoResponse {
 }
 
 async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherData> {
+  // Canonical METRIC (celsius/kmh/mm) - the presenter converts to display units,
+  // so a single cached value serves every unit preference / the units toggle.
   const url =
     "https://api.open-meteo.com/v1/forecast" +
     `?latitude=${lat}&longitude=${lon}` +
     "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m" +
     "&hourly=temperature_2m,precipitation_probability,weather_code" +
     "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset" +
-    "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch" +
+    "&temperature_unit=celsius&wind_speed_unit=kmh&precipitation_unit=mm" +
     "&timezone=auto&forecast_days=10";
 
   // Tighter timeout than the global default: when Open-Meteo is down (observed
-  // repeatedly), the NWS fallback chain must still fit inside the page budget.
+  // repeatedly), the fallback chain must still fit inside the page budget.
   const data = await fetchJson<OpenMeteoResponse>(url, { timeoutMs: 2500 });
   const cur = data.current;
   const curMap = mapWmoCode(cur.weather_code);
 
   const current: CurrentWeather = {
-    tempF: Math.round(cur.temperature_2m),
-    feelsLikeF: Math.round(cur.apparent_temperature),
+    tempC: Math.round(cur.temperature_2m),
+    feelsLikeC: Math.round(cur.apparent_temperature),
     humidity: cur.relative_humidity_2m,
     weatherCode: cur.weather_code,
     condition: curMap.condition,
     iconKey: curMap.iconKey,
     isDay: cur.is_day === 1,
-    windMph: Math.round(cur.wind_speed_10m),
+    windKmh: Math.round(cur.wind_speed_10m),
     windDir: cur.wind_direction_10m,
-    windGustMph: Math.round(cur.wind_gusts_10m),
-    precipIn: cur.precipitation,
+    windGustKmh: Math.round(cur.wind_gusts_10m),
+    precipMm: cur.precipitation,
     cloudCover: cur.cloud_cover,
   };
 
@@ -74,8 +76,8 @@ async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherData> {
       weatherCode: data.daily.weather_code[i],
       condition: map.condition,
       iconKey: map.iconKey,
-      highF: Math.round(data.daily.temperature_2m_max[i]),
-      lowF: Math.round(data.daily.temperature_2m_min[i]),
+      highC: Math.round(data.daily.temperature_2m_max[i]),
+      lowC: Math.round(data.daily.temperature_2m_min[i]),
       precipChance: data.daily.precipitation_probability_max[i],
       sunrise: data.daily.sunrise[i] || null,
       sunset: data.daily.sunset[i] || null,
@@ -90,7 +92,7 @@ async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherData> {
   );
   const hourly: HourlyForecast[] = data.hourly.time.slice(startIdx, startIdx + 24).map((time, i) => ({
     time,
-    tempF: Math.round(data.hourly.temperature_2m[startIdx + i]),
+    tempC: Math.round(data.hourly.temperature_2m[startIdx + i]),
     precipChance: data.hourly.precipitation_probability[startIdx + i],
     weatherCode: data.hourly.weather_code[startIdx + i],
   }));
@@ -98,21 +100,24 @@ async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherData> {
   return { provider: "open-meteo", current, daily, hourly, fetchedAt: new Date().toISOString() };
 }
 
-// ── NWS fallback ─────────────────────────────────────────────────────────────
+// ── NWS fallback (US only; converts its imperial values to canonical metric) ──
 
 interface NwsPeriod {
   startTime: string;
   isDaytime: boolean;
-  temperature: number;
+  temperature: number; // °F
   probabilityOfPrecipitation?: { value: number | null };
   shortForecast: string;
-  windSpeed?: string;
+  windSpeed?: string; // "10 mph"
 }
 
 const nwsHeaders = {
   "User-Agent": config.http.nwsUserAgent,
   Accept: "application/geo+json",
 };
+
+const fToC = (f: number) => Math.round(((f - 32) * 5) / 9);
+const mphToKmh = (mph: number) => Math.round(mph * 1.609344);
 
 async function fetchNws(lat: number, lon: number): Promise<WeatherData> {
   // Coords max 4 decimals or api.weather.gov 301s.
@@ -157,8 +162,8 @@ async function fetchNws(lat: number, lon: number): Promise<WeatherData> {
         weatherCode: -1, // NWS has no WMO codes
         condition: map.condition,
         iconKey: map.iconKey,
-        highF: Math.max(...temps),
-        lowF: Math.min(...temps),
+        highC: fToC(Math.max(...temps)),
+        lowC: fToC(Math.min(...temps)),
         precipChance: rep.probabilityOfPrecipitation?.value ?? null,
         sunrise: null,
         sunset: null,
@@ -168,7 +173,7 @@ async function fetchNws(lat: number, lon: number): Promise<WeatherData> {
   const hourlyPeriods = hourlyRes.properties.periods.slice(0, 24);
   const hourly: HourlyForecast[] = hourlyPeriods.map((p) => ({
     time: p.startTime,
-    tempF: p.temperature,
+    tempC: fToC(p.temperature),
     precipChance: p.probabilityOfPrecipitation?.value ?? null,
     weatherCode: -1,
   }));
@@ -177,9 +182,10 @@ async function fetchNws(lat: number, lon: number): Promise<WeatherData> {
   // 20+ min and need a second chain of calls - the hourly nowcast is fresher).
   const nowPeriod = hourlyPeriods[0];
   const nowMap = mapNwsShortForecast(nowPeriod?.shortForecast || "");
+  const nowMph = nowPeriod?.windSpeed ? parseInt(nowPeriod.windSpeed, 10) || null : null;
   const current: CurrentWeather = {
-    tempF: nowPeriod?.temperature ?? daily[0]?.highF ?? 0,
-    feelsLikeF: null,
+    tempC: nowPeriod ? fToC(nowPeriod.temperature) : daily[0]?.highC ?? 0,
+    feelsLikeC: null,
     humidity: null,
     weatherCode: -1,
     condition: nowMap.condition,
@@ -187,24 +193,135 @@ async function fetchNws(lat: number, lon: number): Promise<WeatherData> {
     // NWS computes isDaytime for the forecast location - using it avoids showing
     // a moon icon at noon when the server runs in a different timezone (e.g. UTC).
     isDay: nowPeriod?.isDaytime ?? true,
-    windMph: nowPeriod?.windSpeed ? parseInt(nowPeriod.windSpeed, 10) || null : null,
+    windKmh: nowMph != null ? mphToKmh(nowMph) : null,
     windDir: null,
-    windGustMph: null,
-    precipIn: null,
+    windGustKmh: null,
+    precipMm: null,
     cloudCover: null,
   };
 
   return { provider: "nws", current, daily, hourly, fetchedAt: new Date().toISOString() };
 }
 
+// ── MET Norway fallback (global, keyless; removes the abroad single-point-of-
+// failure since NWS is US-only). Requires an identifying User-Agent. Metric. ──
+
+interface MetTimeseries {
+  time: string;
+  data: {
+    instant: {
+      details: {
+        air_temperature?: number;
+        relative_humidity?: number;
+        wind_speed?: number; // m/s
+        wind_from_direction?: number;
+        cloud_area_fraction?: number;
+      };
+    };
+    next_1_hours?: { summary?: { symbol_code?: string }; details?: { precipitation_amount?: number } };
+    next_6_hours?: {
+      summary?: { symbol_code?: string };
+      details?: { precipitation_amount?: number };
+    };
+  };
+}
+
+/** MET Norway symbol_code (e.g. "partlycloudy_day", "heavyrain") → icon vocabulary. */
+function mapMetSymbol(code?: string): { condition: string; iconKey: string } {
+  const c = (code || "").replace(/_(day|night|polartwilight)$/, "");
+  if (/thunder/.test(c)) return { condition: "Thunderstorm", iconKey: "thunder" };
+  if (/sleet/.test(c)) return { condition: "Sleet", iconKey: "sleet" };
+  if (/heavysnow/.test(c)) return { condition: "Heavy snow", iconKey: "heavySnow" };
+  if (/snowshowers/.test(c)) return { condition: "Snow showers", iconKey: "snowShowers" };
+  if (/snow/.test(c)) return { condition: "Snow", iconKey: "lightSnow" };
+  if (/heavyrain/.test(c)) return { condition: "Heavy rain", iconKey: "heavyRain" };
+  if (/rainshowers/.test(c)) return { condition: "Rain showers", iconKey: "lightShowers" };
+  if (/rain|drizzle/.test(c)) return { condition: "Rain", iconKey: "lightRain" };
+  if (/fog/.test(c)) return { condition: "Fog", iconKey: "fog" };
+  if (/partlycloudy/.test(c)) return { condition: "Partly cloudy", iconKey: "partlyCloudy" };
+  if (/cloudy/.test(c)) return { condition: "Cloudy", iconKey: "cloudy" };
+  if (/fair|clearsky/.test(c)) return { condition: "Clear", iconKey: "clear" };
+  return { condition: "Unknown", iconKey: "unknown" };
+}
+
+async function fetchMetNorway(lat: number, lon: number): Promise<WeatherData> {
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
+  const data = await fetchJson<{ properties?: { timeseries?: MetTimeseries[] } }>(url, {
+    headers: { "User-Agent": config.http.nwsUserAgent },
+    timeoutMs: 3000,
+  });
+  const series = data.properties?.timeseries || [];
+  if (series.length === 0) throw new Error("MET Norway empty timeseries");
+
+  const first = series[0];
+  const inst = first.data.instant.details;
+  const nowCode = first.data.next_1_hours?.summary?.symbol_code || first.data.next_6_hours?.summary?.symbol_code;
+  const nowMap = mapMetSymbol(nowCode);
+  const current: CurrentWeather = {
+    tempC: Math.round(inst.air_temperature ?? 0),
+    feelsLikeC: null,
+    humidity: inst.relative_humidity != null ? Math.round(inst.relative_humidity) : null,
+    weatherCode: -1,
+    condition: nowMap.condition,
+    iconKey: nowMap.iconKey,
+    isDay: !/_night/.test(nowCode || "_day"),
+    windKmh: inst.wind_speed != null ? Math.round(inst.wind_speed * 3.6) : null,
+    windDir: inst.wind_from_direction ?? null,
+    windGustKmh: null,
+    precipMm: first.data.next_1_hours?.details?.precipitation_amount ?? null,
+    cloudCover: inst.cloud_area_fraction != null ? Math.round(inst.cloud_area_fraction) : null,
+  };
+
+  // Daily: group the timeseries by UTC date -> hi/lo + a midday-preferred symbol.
+  const byDate = new Map<string, { temps: number[]; symbol?: string }>();
+  for (const ts of series) {
+    const date = ts.time.slice(0, 10);
+    const e = byDate.get(date) || { temps: [] };
+    const temp = ts.data.instant.details.air_temperature;
+    if (temp != null) e.temps.push(temp);
+    const sym = ts.data.next_6_hours?.summary?.symbol_code || ts.data.next_1_hours?.summary?.symbol_code;
+    if (sym && (!e.symbol || ts.time.slice(11, 13) === "12")) e.symbol = sym;
+    byDate.set(date, e);
+  }
+  const daily: DailyForecast[] = [...byDate.entries()].slice(0, 10).map(([date, e]) => {
+    const map = mapMetSymbol(e.symbol);
+    return {
+      date,
+      weatherCode: -1,
+      condition: map.condition,
+      iconKey: map.iconKey,
+      highC: e.temps.length ? Math.round(Math.max(...e.temps)) : 0,
+      lowC: e.temps.length ? Math.round(Math.min(...e.temps)) : 0,
+      precipChance: null, // MET gives amount, not probability
+      sunrise: null,
+      sunset: null,
+    };
+  });
+
+  const hourly: HourlyForecast[] = series.slice(0, 24).map((ts) => ({
+    time: ts.time,
+    tempC: Math.round(ts.data.instant.details.air_temperature ?? 0),
+    precipChance: null,
+    weatherCode: -1,
+  }));
+
+  return { provider: "met-norway", current, daily, hourly, fetchedAt: new Date().toISOString() };
+}
+
 export async function getWeather(lat: number, lon: number): Promise<WeatherData | null> {
-  const key = `wx:v1:${lat.toFixed(2)},${lon.toFixed(2)}`;
+  // v2: values are now canonical metric (was imperial in v1).
+  const key = `wx:v2:${lat.toFixed(2)},${lon.toFixed(2)}`;
   return getOrSet(key, { ttlSeconds: config.cache.weatherTtl }, async () => {
     try {
       return await fetchOpenMeteo(lat, lon);
     } catch (err) {
-      log.warn({ err, lat, lon }, "open-meteo failed - falling back to NWS");
-      return fetchNws(lat, lon);
+      log.warn({ err, lat, lon }, "open-meteo failed - trying MET Norway");
+      try {
+        return await fetchMetNorway(lat, lon);
+      } catch (err2) {
+        log.warn({ err: err2, lat, lon }, "MET Norway failed - falling back to NWS (US only)");
+        return fetchNws(lat, lon);
+      }
     }
   });
 }

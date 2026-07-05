@@ -1,38 +1,68 @@
 /**
  * PageData → view model. ALL formatting lives here: templates receive
- * pre-formatted strings only and do zero date math. ISO strings ride along
+ * pre-formatted strings only and do zero date/unit math. ISO strings ride along
  * solely for the client-side clock / relative-time refreshers.
+ *
+ * Units are converted from canonical metric to the visitor's display system and
+ * dates are formatted in the place's locale, both resolved from the country
+ * (with an optional per-request override for the units/language toggles).
  */
 import config from "../config";
 import { MASTHEAD, MASTHEAD_404, weatherIcon, aqiGauge, pollenGauge, WeatherIcon } from "./asciiArt";
-import { PageData } from "./sources/types";
-import { nearbyZips, stateDisplayName, citiesInState, NearZip } from "./geo/zipDatabase";
+import { PageData, PlaceContext, AlertItem } from "./sources/types";
+import { nearbyZips, stateDisplayName, citiesInState } from "./geo/zipDatabase";
+import { getPlace, nearbyPlaces, countryName as geoCountryName, slugify } from "./geo/placeDatabase";
+import { getCountryProfile, MeasurementSystem } from "./i18n/countries";
+import {
+  UnitPreference,
+  resolveMeasurement,
+  formatTemp,
+  formatTempBare,
+  formatWind,
+  formatDistanceKm,
+  formatDistanceM,
+} from "./i18n/units";
+import { t, isRtl, languageName } from "./i18n/strings";
 
-// Canonical origin, derived from config (never from a request Host header) so
-// canonical/og:url/JSON-LD URLs are stable and cache-safe.
 const SITE_URL = config.server.host.replace(/\/$/, "");
 const OG_IMAGE = `${SITE_URL}/og.svg`;
-const SITE_DESC = "Live local news, weather, and happenings for any US zip code.";
+const SITE_DESC = "Live local news, weather, and happenings for any city or postal code worldwide.";
 
-/** Clamp text to the ~155-char SERP snippet window at a word boundary. */
+/** Per-request display preferences, resolved from the country + optional toggles. */
+export interface RenderPrefs {
+  measurement: MeasurementSystem;
+  lang: string; // page chrome language
+  locale: string; // BCP-47 for Intl date/number formatting
+  dir: "ltr" | "rtl";
+}
+
+/** Resolve display prefs for a place, honoring optional units/lang overrides (cookies). */
+export function resolvePrefs(
+  country: string,
+  overrides?: { units?: UnitPreference; lang?: string },
+): RenderPrefs {
+  const profile = getCountryProfile(country);
+  const lang = overrides?.lang || profile.lang;
+  return {
+    measurement: resolveMeasurement(country, overrides?.units),
+    lang,
+    locale: overrides?.lang ? overrides.lang : profile.locale,
+    dir: isRtl(lang) ? "rtl" : "ltr",
+  };
+}
+
 function clampDesc(text: string, max = 155): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(0, max - 1);
+  const s = text.replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1);
   const sp = cut.lastIndexOf(" ");
   return (sp > 60 ? cut.slice(0, sp) : cut).replace(/[\s.,;:!?-]+$/, "") + "…";
 }
 
-/**
- * Serialize a JSON-LD blob for a <script type="application/ld+json"> tag,
- * escaping "<" so a "</script>" hiding in any external-feed string (news/event
- * titles, place names) can't break out of the script element.
- */
 function jsonLd(obj: unknown): string {
   return JSON.stringify(obj).replace(/</g, "\\u003c");
 }
 
-/** Site-wide JSON-LD: a WebSite (with SearchAction) + its Organization. */
 function siteSchema(): string {
   return jsonLd({
     "@context": "https://schema.org",
@@ -46,99 +76,87 @@ function siteSchema(): string {
         publisher: { "@id": `${SITE_URL}/#org` },
         potentialAction: {
           "@type": "SearchAction",
-          target: {
-            "@type": "EntryPoint",
-            urlTemplate: `${SITE_URL}/?q={search_term_string}`,
-          },
+          target: { "@type": "EntryPoint", urlTemplate: `${SITE_URL}/?q={search_term_string}` },
           "query-input": "required name=search_term_string",
         },
       },
-      {
-        "@type": "Organization",
-        "@id": `${SITE_URL}/#org`,
-        name: config.siteName,
-        url: `${SITE_URL}/`,
-        logo: OG_IMAGE,
-      },
+      { "@type": "Organization", "@id": `${SITE_URL}/#org`, name: config.siteName, url: `${SITE_URL}/`, logo: OG_IMAGE },
     ],
   });
 }
 
-/** Per-zip JSON-LD: the page as a WebPage that is About a specific City/place. */
-function placeSchema(data: PageData, canonicalPath: string): string {
+/** Per-place JSON-LD: the page as a WebPage About a specific City/place (any country). */
+function placeSchema(place: PlaceContext, canonicalPath: string): string {
+  const address: Record<string, unknown> = {
+    "@type": "PostalAddress",
+    addressLocality: place.city,
+    addressRegion: place.admin1Name,
+    addressCountry: place.country,
+  };
+  if (place.postal) address.postalCode = place.postal;
   return jsonLd({
     "@context": "https://schema.org",
     "@type": "WebPage",
     "@id": `${SITE_URL}${canonicalPath}#webpage`,
     url: `${SITE_URL}${canonicalPath}`,
-    name: `${data.city}, ${data.state} ${data.zip}`,
+    name: place.postal ? `${place.city}, ${place.admin1Code} ${place.postal}` : `${place.city}, ${place.admin1Name}`,
     isPartOf: { "@id": `${SITE_URL}/#website` },
     about: {
       "@type": "City",
-      name: data.city,
-      address: {
-        "@type": "PostalAddress",
-        addressLocality: data.city,
-        addressRegion: data.state,
-        postalCode: data.zip,
-        addressCountry: "US",
-      },
-      containedInPlace: { "@type": "State", name: data.state },
-      geo: {
-        "@type": "GeoCoordinates",
-        latitude: data.lat,
-        longitude: data.lon,
-      },
+      name: place.city,
+      address,
+      containedInPlace: { "@type": "AdministrativeArea", name: place.admin1Name },
+      geo: { "@type": "GeoCoordinates", latitude: place.lat, longitude: place.lon },
     },
   });
 }
 
-/** BreadcrumbList: Home → State hub → this City page. */
-function breadcrumbSchema(stateCode: string, stateName: string, cityLine: string, zip: string): string {
+interface Crumb {
+  name: string;
+  href?: string;
+}
+
+function breadcrumbSchema(crumbs: Crumb[]): string {
   return jsonLd({
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: config.siteName, item: `${SITE_URL}/` },
-      { "@type": "ListItem", position: 2, name: stateName, item: `${SITE_URL}/${stateCode}` },
-      // Last item is the current page - item omitted per schema.org guidance.
-      { "@type": "ListItem", position: 3, name: cityLine, item: `${SITE_URL}/${zip}` },
-    ],
+    itemListElement: crumbs.map((c, i) => {
+      const item: Record<string, unknown> = { "@type": "ListItem", position: i + 1, name: c.name };
+      if (c.href) item.item = `${SITE_URL}${c.href}`;
+      return item;
+    }),
   });
 }
 
-function fmt(date: Date, timezone: string, opts: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat("en-US", { timeZone: timezone, ...opts }).format(date);
+// ── Locale-aware date/time formatting ────────────────────────────────────────
+
+function fmt(date: Date, locale: string, timezone: string, opts: Intl.DateTimeFormatOptions): string {
+  return new Intl.DateTimeFormat(locale, { timeZone: timezone, ...opts }).format(date);
 }
 
-function fmtTime(iso: string | null, timezone: string): string | null {
+function fmtTime(iso: string | null, locale: string, timezone: string): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
-  return fmt(d, timezone, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  return fmt(d, locale, timezone, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
-function tzAbbr(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    timeZoneName: "short",
-  }).formatToParts(date);
+function tzAbbr(date: Date, locale: string, timezone: string): string {
+  const parts = new Intl.DateTimeFormat(locale, { timeZone: timezone, timeZoneName: "short" }).formatToParts(date);
   return parts.find((p) => p.type === "timeZoneName")?.value || "";
 }
 
-/** Game date only, in the zip's timezone: "JUL 5". */
-function fmtGameDate(iso: string, timezone: string): string {
+function fmtGameDate(iso: string, locale: string, timezone: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  return fmt(d, timezone, { month: "short", day: "numeric" }).toUpperCase();
+  return fmt(d, locale, timezone, { month: "short", day: "numeric" }).toUpperCase();
 }
 
-/** Scheduled game start, in the zip's timezone: "SEP 10 · 8:35 PM". */
-function fmtGameStart(iso: string, timezone: string): string {
-  const date = fmtGameDate(iso, timezone);
+function fmtGameStart(iso: string, locale: string, timezone: string): string {
+  const date = fmtGameDate(iso, locale, timezone);
   const d = new Date(iso);
   if (!date || isNaN(d.getTime())) return "";
-  const time = fmt(d, timezone, { hour: "numeric", minute: "2-digit" });
+  const time = fmt(d, locale, timezone, { hour: "numeric", minute: "2-digit" });
   return `${date} · ${time}`;
 }
 
@@ -152,151 +170,156 @@ export function relTime(iso: string | null, now: Date): string {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }
 
-/** "2026-07-05" → "SAT 7/05" pieces without timezone drift (parse as local date). */
-function dayLabel(dateStr: string, timezone: string): { dow: string; dateLabel: string } {
+function dayLabel(dateStr: string, locale: string, timezone: string): { dow: string; dateLabel: string } {
   const d = new Date(`${dateStr}T12:00:00`);
   return {
-    dow: fmt(d, timezone, { weekday: "short" }).toUpperCase(),
-    dateLabel: fmt(d, timezone, { month: "numeric", day: "2-digit" }),
+    dow: fmt(d, locale, timezone, { weekday: "short" }).toUpperCase(),
+    dateLabel: fmt(d, locale, timezone, { month: "numeric", day: "2-digit" }),
   };
 }
 
-export interface ZipViewModel {
-  metaTitle: string;
-  metaDesc: string;
-  canonicalPath: string;
-  robots: string;
-  ogImage: string;
-  structuredData: string[];
-  breadcrumb: { stateCode: string; stateName: string; current: string };
-  nearby: NearZip[];
-  masthead: string;
-  place: { zip: string; city: string; state: string; timezone: string; lat: number; lon: number };
-  now: { iso: string; time: string; date: string; tzAbbr: string };
-  current: {
-    tempF: number;
-    feelsLikeF: number | null;
-    condition: string;
-    icon: WeatherIcon;
-    windMph: number | null;
-    humidityPct: number | null;
-    sunrise: string | null;
-    sunset: string | null;
-    moonPhaseName: string | null;
-  } | null;
-  summary: string | null;
-  provider: string | null;
-  forecast: Array<{
-    dow: string;
-    dateLabel: string;
-    hiF: number;
-    loF: number;
-    precipPct: number | null;
-    icon: WeatherIcon;
-  }>;
-  news: Array<{
-    rank: number;
-    title: string;
-    url: string;
-    source: string;
-    publishedIso: string | null;
-    relTime: string;
-  }>;
-  alerts: Array<{
-    event: string;
-    severity: string;
-    isUrgent: boolean;
-    headline: string;
-    expires: string | null;
-  }>;
-  aqi: { value: number; category: string; pollutant: string; gauge: string } | null;
-  events: Array<{ name: string; venue: string | null; dateLabel: string; url: string | null }>;
-  quakes: Array<{ magnitude: string; place: string; url: string; timeIso: string; relTime: string }>;
-  sports: Array<{
-    league: string;
-    matchup: string; // "NYY vs BOS"
-    score: string | null; // "3-2"
-    detail: string; // "TOP 5TH" | "FINAL" | "7:05 PM"
-    isLive: boolean;
-  }>;
-  places: Array<{ name: string; category: string; address: string | null; distance: string; website: string | null }>;
-  parks: Array<{ name: string; designation: string; url: string; distance: string }>;
-  camps: Array<{ name: string; type: string; url: string | null; distance: string }>;
-  pollen: { types: Array<{ name: string; category: string; gauge: string }> } | null;
-  election: {
-    name: string;
-    day: string;
-    registrationUrl: string | null;
-    pollingUrl: string | null;
-    ballotUrl: string | null;
-  } | null;
-  attribution: {
-    refreshed: { weather: string | null; news: string | null; aqi: string | null; events: string | null };
-  };
-}
-
-export function toViewModel(data: PageData, opts: { asHome?: boolean } = {}): ZipViewModel {
-  const now = new Date();
-  const tz = data.timezone;
-  const cityLine = `${data.city}, ${data.state} ${data.zip}`;
-  const stateCode = data.state.toLowerCase();
-  const stateName = stateDisplayName(data.state) || data.state;
-  // Rendered at the root: 200 in place (no redirect), self-canonical homepage.
-  const canonicalPath = opts.asHome ? "/" : `/${data.zip}`;
-  const structuredData = [siteSchema(), placeSchema(data, canonicalPath)];
-  if (!opts.asHome) {
-    structuredData.push(breadcrumbSchema(stateCode, stateName, cityLine, data.zip));
+/** AQI gauge scaled to the reporting scale (US 0-500, EU EAQI 0-100). */
+function scaledAqiGauge(aqi: number, scale: "us" | "eu"): string {
+  if (scale === "eu") {
+    const filled = Math.max(0, Math.min(10, Math.round(Math.min(aqi, 100) / 10)));
+    return `[${"█".repeat(filled)}${"░".repeat(10 - filled)}]`;
   }
+  return aqiGauge(aqi);
+}
 
+/**
+ * Collapse duplicate alert banners by content (event + severity + headline).
+ * MeteoAlarm often issues the same nationwide warning once per region, and any
+ * upstream can repeat - this guarantees a banner never shows twice.
+ */
+function dedupeAlerts(alerts: AlertItem[] | null): AlertItem[] {
+  const seen = new Set<string>();
+  const out: AlertItem[] = [];
+  for (const a of alerts || []) {
+    const key = `${a.event}|${a.severity}|${a.headline}`.toLowerCase().trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
+}
+
+// ── The page view model ──────────────────────────────────────────────────────
+
+export function toViewModel(
+  data: PageData,
+  opts: { asHome?: boolean; prefs?: RenderPrefs } = {},
+): Record<string, unknown> {
+  const p = data.place;
+  const prefs = opts.prefs ?? resolvePrefs(p.country);
+  const { measurement: m, locale, lang, dir } = prefs;
+  const now = new Date();
+  const tz = p.timezone;
+
+  const isUS = p.kind === "us-zip";
+  const stateName = isUS ? stateDisplayName(p.admin1Code) || p.admin1Name : p.admin1Name;
+  const cName = geoCountryName(p.country) || getCountryProfile(p.country).name;
+  const locationLine = isUS
+    ? `${p.city}, ${p.admin1Code} ${p.postal}`
+    : `${p.city}, ${p.admin1Name}`;
+
+  const canonicalPath = opts.asHome ? "/" : p.canonicalPath;
+
+  // Breadcrumb: Home -> (State hub | Country) -> current. US keeps its /{state}
+  // hub link; city hubs are linked once the country/region hub pages exist.
+  const crumbs: Crumb[] = [{ name: config.siteName, href: "/" }];
+  if (isUS) {
+    crumbs.push({ name: stateName, href: `/us/${p.admin1Code.toLowerCase()}` });
+  } else {
+    crumbs.push({ name: cName });
+    if (p.admin1Name) crumbs.push({ name: p.admin1Name });
+  }
+  crumbs.push({ name: locationLine });
+
+  const structuredData = [siteSchema(), placeSchema(p, canonicalPath)];
+  if (!opts.asHome) structuredData.push(breadcrumbSchema(crumbs));
+
+  const cw = data.weather?.current;
   const current = data.weather
     ? {
-        tempF: data.weather.current.tempF,
-        feelsLikeF: data.weather.current.feelsLikeF,
-        condition: data.weather.current.condition,
-        icon: weatherIcon(
-          data.weather.current.iconKey,
-          data.weather.current.isDay,
-          data.weather.current.condition,
-        ),
-        windMph: data.weather.current.windMph,
-        humidityPct: data.weather.current.humidity,
-        sunrise: fmtTime(data.sunMoon?.sunrise ?? null, tz),
-        sunset: fmtTime(data.sunMoon?.sunset ?? null, tz),
+        temp: formatTemp(cw!.tempC, m),
+        feelsLike: formatTempBare(cw!.feelsLikeC, m),
+        condition: cw!.condition,
+        icon: weatherIcon(cw!.iconKey, cw!.isDay, cw!.condition),
+        wind: formatWind(cw!.windKmh, m),
+        humidityPct: cw!.humidity,
+        sunrise: fmtTime(data.sunMoon?.sunrise ?? null, locale, tz),
+        sunset: fmtTime(data.sunMoon?.sunset ?? null, locale, tz),
         moonPhaseName: data.sunMoon?.moonPhaseName ?? null,
       }
     : null;
 
+  // Nearby mesh: US zips (overlay) or global cities.
+  let nearby: Array<{ href: string; label: string; distance: string }>;
+  if (isUS && p.postal) {
+    nearby = nearbyZips(p.postal, 12).map((z) => ({
+      href: `/${z.zip}`,
+      label: `${z.zip} · ${z.city}, ${z.state}`,
+      distance: `${z.distanceMi} MI`,
+    }));
+  } else {
+    const origin = getPlace(p.id);
+    nearby = origin
+      ? nearbyPlaces(origin, 12).map((n) => ({
+          href: n.path,
+          label: `${n.name}, ${n.admin1Name}`,
+          distance: formatDistanceKm(n.distanceKm, m) || "",
+        }))
+      : [];
+  }
+
+  const metaTitle = `${locationLine} - ${config.siteName}`;
+
   return {
-    metaTitle: `${cityLine} - ${config.siteName}`,
+    lang,
+    dir,
+    ogLocale: locale.replace("-", "_"),
+    metaTitle,
     metaDesc: clampDesc(
-      data.summary ||
-        `Local news, weather, and happenings for ${data.city}, ${data.state} ${data.zip}.`,
+      data.summary || `Local news, weather, and happenings for ${locationLine}.`,
     ),
     canonicalPath,
     robots: "index, follow",
     ogImage: OG_IMAGE,
     structuredData,
-    breadcrumb: { stateCode, stateName, current: cityLine },
-    nearby: nearbyZips(data.zip, 12),
+    crumbs,
+    nearby,
     masthead: MASTHEAD,
-    place: { zip: data.zip, city: data.city, state: data.state, timezone: tz, lat: data.lat, lon: data.lon },
+    place: {
+      city: p.city,
+      region: p.admin1Name,
+      regionCode: p.admin1Code,
+      country: p.country,
+      countryName: cName,
+      postal: p.postal,
+      locationLine,
+      timezone: tz,
+      lat: p.lat,
+      lon: p.lon,
+      kind: p.kind,
+    },
+    tagline: t("tagline.zip", lang, { place: `${p.city}, ${isUS ? p.admin1Code : p.admin1Name}` }),
     now: {
       iso: now.toISOString(),
-      time: fmt(now, tz, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
-      date: fmt(now, tz, { weekday: "short", month: "short", day: "2-digit", year: "numeric" }).toUpperCase(),
-      tzAbbr: tzAbbr(now, tz),
+      time: fmt(now, locale, tz, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+      date: fmt(now, locale, tz, { weekday: "short", month: "short", day: "2-digit", year: "numeric" }).toUpperCase(),
+      tzAbbr: tzAbbr(now, locale, tz),
     },
     current,
     summary: data.summary,
     provider: data.weather?.provider ?? null,
     forecast: (data.weather?.daily || []).map((d) => ({
-      ...dayLabel(d.date, tz),
-      hiF: d.highF,
-      loF: d.lowF,
+      ...dayLabel(d.date, locale, tz),
+      hi: formatTempBare(d.highC, m),
+      lo: formatTempBare(d.lowC, m),
       precipPct: d.precipChance,
       icon: weatherIcon(d.iconKey, true, d.condition),
     })),
@@ -308,25 +331,25 @@ export function toViewModel(data: PageData, opts: { asHome?: boolean } = {}): Zi
       publishedIso: s.publishedAt,
       relTime: relTime(s.publishedAt, now),
     })),
-    alerts: (data.alerts || []).map((a) => ({
+    alerts: dedupeAlerts(data.alerts).map((a) => ({
       event: a.event,
       severity: a.severity,
       isUrgent: a.severity === "Extreme" || a.severity === "Severe",
       headline: a.headline,
-      expires: a.ends ? `until ${fmtTime(a.ends, tz)} ${tzAbbr(new Date(a.ends), tz)}` : null,
+      expires: a.ends ? `until ${fmtTime(a.ends, locale, tz)} ${tzAbbr(new Date(a.ends), locale, tz)}` : null,
     })),
     aqi: data.air
       ? {
           value: data.air.aqi,
           category: data.air.category,
           pollutant: data.air.pollutant,
-          gauge: aqiGauge(data.air.aqi),
+          gauge: scaledAqiGauge(data.air.aqi, data.air.scale),
         }
       : null,
     events: (data.events?.events || []).map((e) => {
       let dateLabel = "";
       if (e.startDateLocal) {
-        const labels = dayLabel(e.startDateLocal, tz);
+        const labels = dayLabel(e.startDateLocal, locale, tz);
         dateLabel = `${labels.dow} ${labels.dateLabel}${e.startTimeLocal ? ` · ${e.startTimeLocal}` : ""}`;
       }
       return { name: e.name, venue: e.venue, dateLabel, url: e.url };
@@ -344,47 +367,38 @@ export function toViewModel(data: PageData, opts: { asHome?: boolean } = {}): Zi
       score: g.teamScore != null && g.oppScore != null ? `${g.teamScore}-${g.oppScore}` : null,
       detail:
         g.status === "scheduled"
-          ? fmtGameStart(g.startsAt, tz)
+          ? fmtGameStart(g.startsAt, locale, tz)
           : g.status === "final"
-            ? // show WHEN a final happened, e.g. "JUL 5 · FINAL" / "JUL 5 · FINAL/OT"
-              [fmtGameDate(g.startsAt, tz), (g.detail || "FINAL").toUpperCase()]
-                .filter(Boolean)
-                .join(" · ")
+            ? [fmtGameDate(g.startsAt, locale, tz), (g.detail || "FINAL").toUpperCase()].filter(Boolean).join(" · ")
             : (g.detail || "LIVE").toUpperCase(),
       isLive: g.status === "live",
     })),
-    places: (data.places || []).map((p) => ({
-      name: p.name,
-      category: p.category,
-      address: p.address,
-      distance: p.distanceMi != null ? `${p.distanceMi} MI` : "",
-      website: p.website,
+    places: (data.places || []).map((pl) => ({
+      name: pl.name,
+      category: pl.category,
+      address: pl.address,
+      distance: formatDistanceM(pl.distanceM, m) || "",
+      website: pl.website,
     })),
-    parks: (data.parks || []).map((p) => ({
-      name: p.name,
-      designation: p.designation,
-      url: p.url,
-      distance: p.distanceMi != null ? `${p.distanceMi} MI` : "",
+    parks: (data.parks || []).map((pk) => ({
+      name: pk.name,
+      designation: pk.designation,
+      url: pk.url,
+      distance: formatDistanceKm(pk.distanceKm, m) || "",
     })),
     camps: (data.camps || []).map((c) => ({
       name: c.name,
       type: c.type,
       url: c.reservationUrl,
-      distance: c.distanceMi != null ? `${c.distanceMi} MI` : "",
+      distance: formatDistanceKm(c.distanceKm, m) || "",
     })),
     pollen: data.pollen
-      ? {
-          types: data.pollen.types.map((t) => ({
-            name: t.name.toUpperCase(),
-            category: t.category,
-            gauge: pollenGauge(t.value),
-          })),
-        }
+      ? { types: data.pollen.types.map((ty) => ({ name: ty.name.toUpperCase(), category: ty.category, gauge: pollenGauge(ty.value) })) }
       : null,
     election: data.election
       ? {
           name: data.election.name,
-          day: fmt(new Date(`${data.election.electionDay}T12:00:00`), tz, {
+          day: fmt(new Date(`${data.election.electionDay}T12:00:00`), locale, tz, {
             weekday: "short",
             month: "short",
             day: "numeric",
@@ -397,21 +411,29 @@ export function toViewModel(data: PageData, opts: { asHome?: boolean } = {}): Zi
       : null,
     attribution: {
       refreshed: {
-        weather: data.weather ? `${fmtTime(data.weather.fetchedAt, tz)}` : null,
-        news: data.news ? `${fmtTime(data.news.fetchedAt, tz)}` : null,
-        aqi: data.air ? `${fmtTime(data.air.fetchedAt, tz)}` : null,
-        events: data.events ? `${fmtTime(data.events.fetchedAt, tz)}` : null,
+        weather: data.weather ? fmtTime(data.weather.fetchedAt, locale, tz) : null,
+        news: data.news ? fmtTime(data.news.fetchedAt, locale, tz) : null,
+        aqi: data.air ? fmtTime(data.air.fetchedAt, locale, tz) : null,
+        events: data.events ? fmtTime(data.events.fetchedAt, locale, tz) : null,
       },
     },
+    // Language options for the toggle (native names), current selection first.
+    langOptions: getCountryProfile(p.country).langs.map((code) => ({
+      code,
+      name: languageName(code),
+      current: code === lang,
+    })),
+    unitsMetric: m !== "imperial",
   };
 }
 
 export function landingViewModel(opts: { badQuery?: string }): Record<string, unknown> {
-  // A bad-query landing is served with a 404 status - keep it out of the index
-  // and drop the canonical so it can never be indexed as the homepage.
   const isBadQuery = Boolean(opts.badQuery);
   return {
-    metaTitle: `${config.siteName} - local happenings by zip code`,
+    lang: "en",
+    dir: "ltr",
+    ogLocale: "en_US",
+    metaTitle: `${config.siteName} - local happenings for any city`,
     metaDesc: SITE_DESC,
     canonicalPath: isBadQuery ? null : "/",
     robots: isBadQuery ? "noindex, follow" : "index, follow",
@@ -422,10 +444,11 @@ export function landingViewModel(opts: { badQuery?: string }): Record<string, un
   };
 }
 
-export function errorViewModel(statusCode: number, zip?: string): Record<string, unknown> {
-  // Error pages already return a real HTTP error status; belt-and-suspenders,
-  // tell crawlers not to index them and emit no canonical.
+export function errorViewModel(statusCode: number, ref?: string): Record<string, unknown> {
   return {
+    lang: "en",
+    dir: "ltr",
+    ogLocale: "en_US",
     metaTitle: `${statusCode} - ${config.siteName}`,
     metaDesc: "Error",
     canonicalPath: null,
@@ -434,22 +457,20 @@ export function errorViewModel(statusCode: number, zip?: string): Record<string,
     structuredData: [],
     masthead404: MASTHEAD_404,
     statusCode,
-    zip: zip || null,
+    zip: ref || null,
   };
 }
 
 /**
- * State hub page (/{state}) - a crawlable directory of every city in the state,
- * each linking to its representative zip page. Gives the 41k zip pages inbound
- * internal links and a Home → State → City crawl path. Returns null for an
- * unknown state code.
+ * US state hub page (/{state}) - crawlable directory of every city in the state.
+ * (Global country/region hubs are rendered by the hubs route separately.)
  */
 export function stateViewModel(code: string): Record<string, unknown> | null {
   const name = stateDisplayName(code);
   const cities = citiesInState(code);
   if (!name || !cities) return null;
   const lc = code.toLowerCase();
-  const path = `/${lc}`;
+  const path = `/us/${lc}`;
 
   const collection = jsonLd({
     "@context": "https://schema.org",
@@ -470,6 +491,9 @@ export function stateViewModel(code: string): Record<string, unknown> | null {
   });
 
   return {
+    lang: "en",
+    dir: "ltr",
+    ogLocale: "en_US",
     metaTitle: `${name} - local news, weather & happenings by city - ${config.siteName}`,
     metaDesc: clampDesc(
       `Local news, weather, and happenings for ${cities.length} cities across ${name}. ` +
@@ -483,5 +507,84 @@ export function stateViewModel(code: string): Record<string, unknown> | null {
     stateName: name,
     stateCode: lc,
     cities,
+  };
+}
+
+// ── Global country / region hubs (rendered via hub.pug) ──────────────────────
+
+function hubBase(canonicalPath: string, crumbs: Crumb[]): Record<string, unknown> {
+  return {
+    lang: "en",
+    dir: "ltr",
+    ogLocale: "en_US",
+    canonicalPath,
+    robots: "index, follow",
+    ogImage: OG_IMAGE,
+    masthead: MASTHEAD,
+    crumbs,
+  };
+}
+
+/** /us - country hub listing every US state (which then lists its cities' zips). */
+export function usCountryHubViewModel(states: Array<{ code: string; name: string }>): Record<string, unknown> {
+  const items = states.map((s) => ({ name: s.name, href: `/us/${s.code.toLowerCase()}` }));
+  const crumbs: Crumb[] = [{ name: config.siteName, href: "/" }, { name: "United States" }];
+  return {
+    ...hubBase("/us", crumbs),
+    metaTitle: `United States - local news & weather by state - ${config.siteName}`,
+    metaDesc: clampDesc("Local news, weather, and happenings across the United States. Pick a state, or enter any US zip code."),
+    structuredData: [siteSchema(), breadcrumbSchema(crumbs)],
+    panelTitle: "STATES",
+    intro: "Local news & weather by US state",
+    note: `${items.length} states & territories`,
+    items,
+  };
+}
+
+/** /{cc} - country hub listing the country's admin1 regions. */
+export function countryHubViewModel(
+  cc: string,
+  name: string,
+  regions: Array<{ name: string; slug: string }>,
+): Record<string, unknown> {
+  const lc = cc.toLowerCase();
+  const items = regions.map((r) => ({ name: r.name, href: `/${lc}/${r.slug}` }));
+  const crumbs: Crumb[] = [{ name: config.siteName, href: "/" }, { name }];
+  return {
+    ...hubBase(`/${lc}`, crumbs),
+    metaTitle: `${name} - local news & weather by region - ${config.siteName}`,
+    metaDesc: clampDesc(`Local news, weather, and happenings across ${name}. Pick a region or city.`),
+    structuredData: [siteSchema(), breadcrumbSchema(crumbs)],
+    panelTitle: `REGIONS OF ${name.toUpperCase()}`,
+    intro: `Local news & weather across ${name}`,
+    note: `${items.length} regions`,
+    items,
+  };
+}
+
+/** /{cc}/{region} - region hub listing its cities (population-ranked, capped). */
+export function regionHubViewModel(
+  cc: string,
+  countryNm: string,
+  region: { name: string },
+  cities: Array<{ name: string; path: string }>,
+): Record<string, unknown> {
+  const lc = cc.toLowerCase();
+  const shown = cities.slice(0, 300);
+  const items = shown.map((c) => ({ name: c.name, href: c.path }));
+  const crumbs: Crumb[] = [
+    { name: config.siteName, href: "/" },
+    { name: countryNm, href: `/${lc}` },
+    { name: region.name },
+  ];
+  return {
+    ...hubBase(`/${lc}/${slugify(region.name)}`, crumbs),
+    metaTitle: `${region.name}, ${countryNm} - local news & weather by city - ${config.siteName}`,
+    metaDesc: clampDesc(`Local news, weather, and happenings for cities across ${region.name}, ${countryNm}.`),
+    structuredData: [siteSchema(), breadcrumbSchema(crumbs)],
+    panelTitle: `CITIES IN ${region.name.toUpperCase()}`,
+    intro: `Local news & weather across ${region.name}`,
+    note: cities.length > shown.length ? `Top ${shown.length} of ${cities.length} cities by population` : `${cities.length} cities`,
+    items,
   };
 }

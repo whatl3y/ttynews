@@ -1,0 +1,25 @@
+extends layout
+include mixins/panel
+include mixins/header
+include mixins/footer
+
+block content
+  .page
+    header(role="banner")
+      +masthead(masthead)
+      if crumbs
+        +breadcrumb(crumbs)
+      p.tagline= intro
+      +zipForm(null)
+
+    main
+      +boxPanel(panelTitle, { id: 'hub' })
+        if note
+          p.list-note= note
+        ul.city-list(role="list")
+          each it in items
+            li
+              a(href=it.href)= it.name
+
+    footer.site-footer
+      +browseNav

@@ -1,23 +1,27 @@
-//- Header pieces: status bar, masthead, zip form, current-weather glance.
+//- Header pieces: status bar, masthead, location form, current-weather glance.
 
 mixin statusBar(place, now)
   .status-bar(aria-hidden="true")
     span.sb-name= siteName
-    span.sb-place #{place.zip} · #{place.city.toUpperCase()}, #{place.state}
+    span.sb-place= place.locationLine.toUpperCase()
     span.sb-date= now.date
 
 mixin masthead(art)
   h1.sr-only= siteName
   pre.masthead(aria-hidden="true")= art
 
-//- Home › State › City trail. Real anchors - internal links + a Breadcrumb rich result.
-mixin breadcrumb(crumb)
+//- Home › Region › City trail. Real anchors - internal links + a Breadcrumb rich result.
+mixin breadcrumb(crumbs)
   nav.crumbs(aria-label="Breadcrumb")
-    a(href="/")= siteName
-    span.crumb-sep(aria-hidden="true") ›
-    a(href="/" + crumb.stateCode)= crumb.stateName
-    span.crumb-sep(aria-hidden="true") ›
-    span.crumb-current= crumb.current
+    each c, i in crumbs
+      if i > 0
+        span.crumb-sep(aria-hidden="true") ›
+      if c.href
+        a(href=c.href)= c.name
+      else if i === crumbs.length - 1
+        span.crumb-current= c.name
+      else
+        span= c.name
 
 mixin zipForm(zip)
   form.zip-form(action="/" method="get")
@@ -28,23 +32,35 @@ mixin zipForm(zip)
       autocomplete="off"
       autocapitalize="words"
       maxlength="64"
-      placeholder="zip or city, st"
-      aria-label="Enter a zip code or a city and state"
+      placeholder="postal code or city"
+      aria-label="Enter a postal code or a city and country"
     )
     button(type="submit") Enter
+
+//- Units + language toggles. Links to /prefs (sets a cookie, 302s back), so the
+//- page works with JS disabled and canonical URLs stay clean of query params.
+mixin prefsBar(langOptions, unitsMetric, path)
+  .prefs-bar(aria-label="Display preferences")
+    span.prefs-group
+      a(href="/prefs?units=imperial&next=" + encodeURIComponent(path) class=(unitsMetric ? null : 'rv') rel="nofollow") °F
+      a(href="/prefs?units=metric&next=" + encodeURIComponent(path) class=(unitsMetric ? 'rv' : null) rel="nofollow") °C
+    if langOptions && langOptions.length > 1
+      span.prefs-group
+        each o in langOptions
+          a(href="/prefs?lang=" + o.code + "&next=" + encodeURIComponent(path) class=(o.current ? 'rv' : null) rel="nofollow" hreflang=o.code)= o.name
 
 mixin currentWx(current, now, place)
   .glance
     if current
       +asciiArt(current.icon)
       div
-        .glance-temp #{current.tempF}°F
+        .glance-temp= current.temp
         .glance-cond= current.condition
       .glance-meta
-        if current.feelsLikeF != null
-          div FEELS #{current.feelsLikeF}°
-        if current.windMph != null
-          div WIND #{current.windMph} MPH
+        if current.feelsLike
+          div FEELS #{current.feelsLike}
+        if current.wind
+          div WIND #{current.wind}
         if current.humidityPct != null
           div HUMID #{current.humidityPct}%
       .glance-meta

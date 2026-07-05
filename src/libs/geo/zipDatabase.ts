@@ -74,6 +74,11 @@ function stateToCode(raw: string): string | null {
   return STATE_NAME_TO_CODE[t.toLowerCase()] || null;
 }
 
+/** True if a token names a US state (2-letter code or full name) - search disambiguation. */
+export function isUsStateToken(raw: string): boolean {
+  return stateToCode(raw) !== null;
+}
+
 /**
  * Parse one GeoNames US.txt line (tab-delimited):
  * country, zip, place, state name, state code, county, county code,

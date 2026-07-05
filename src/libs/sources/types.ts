@@ -1,25 +1,32 @@
+/**
+ * Canonical data shapes. Weather is stored in CANONICAL METRIC (°C, km/h, mm);
+ * the presenter converts to the visitor's display units at render time, so one
+ * cached weather value serves every unit preference and the units toggle costs no
+ * extra cache entries.
+ */
+
 export interface CurrentWeather {
-  tempF: number;
-  feelsLikeF: number | null;
+  tempC: number;
+  feelsLikeC: number | null;
   humidity: number | null;
   weatherCode: number;
   condition: string;
   iconKey: string;
   isDay: boolean;
-  windMph: number | null;
+  windKmh: number | null;
   windDir: number | null;
-  windGustMph: number | null;
-  precipIn: number | null;
+  windGustKmh: number | null;
+  precipMm: number | null;
   cloudCover: number | null;
 }
 
 export interface DailyForecast {
-  date: string; // YYYY-MM-DD in the zip's local timezone
+  date: string; // YYYY-MM-DD in the place's local timezone
   weatherCode: number;
   condition: string;
   iconKey: string;
-  highF: number;
-  lowF: number;
+  highC: number;
+  lowC: number;
   precipChance: number | null;
   sunrise: string | null; // ISO local
   sunset: string | null;
@@ -27,13 +34,13 @@ export interface DailyForecast {
 
 export interface HourlyForecast {
   time: string; // ISO local
-  tempF: number;
+  tempC: number;
   precipChance: number | null;
   weatherCode: number;
 }
 
 export interface WeatherData {
-  provider: "open-meteo" | "nws";
+  provider: "open-meteo" | "nws" | "met-norway";
   current: CurrentWeather;
   daily: DailyForecast[]; // 10 (open-meteo) or ≤7 (nws)
   hourly: HourlyForecast[];
@@ -68,6 +75,7 @@ export interface AlertItem {
 
 export interface AirQualityData {
   provider: "airnow" | "open-meteo";
+  scale: "us" | "eu"; // which AQI scale the value/category use
   aqi: number;
   category: string;
   pollutant: string;
@@ -102,7 +110,7 @@ export interface PlaceItem {
   name: string;
   category: string;
   address: string | null;
-  distanceMi: number | null;
+  distanceM: number | null; // canonical meters
   website: string | null;
 }
 
@@ -110,14 +118,14 @@ export interface ParkItem {
   name: string;
   designation: string; // "National Park", "National Monument", ...
   url: string;
-  distanceMi: number | null;
+  distanceKm: number | null; // canonical km
 }
 
 export interface CampItem {
   name: string;
   type: string; // "Campground", ...
   reservationUrl: string | null;
-  distanceMi: number | null;
+  distanceKm: number | null; // canonical km
 }
 
 export interface PollenType {
@@ -140,7 +148,7 @@ export interface ElectionInfo {
 }
 
 export interface SportsGame {
-  league: string; // "MLB"
+  league: string; // "MLB" | "Premier League"
   team: string; // "New York Yankees"
   teamAbbrev: string;
   opponentAbbrev: string;
@@ -163,14 +171,29 @@ export interface SunMoonData {
   moonIllumination: number; // 0..100
 }
 
-export interface PageData {
-  zip: string;
+/**
+ * The intrinsic facts of a place - the identity a page renders for. Both US zips
+ * and global cities map to this via geo/context.ts. Render-time preferences
+ * (units/language) are NOT stored here; they are applied by the presenter so the
+ * page bundle cache stays per-place.
+ */
+export interface PlaceContext {
+  id: string; // "us:{zip}" or a GeoNames geonameId
+  kind: "us-zip" | "city";
+  country: string; // ISO 3166-1 alpha-2
   city: string;
-  state: string;
-  timezone: string;
+  admin1Code: string; // US state code or GeoNames admin1
+  admin1Name: string; // "Ohio" | "England"
+  postal: string | null; // US zip, else null
   lat: number;
   lon: number;
-  summary: string | null;
+  timezone: string; // IANA
+  canonicalPath: string; // "/43215" | "/gb/england/london"
+}
+
+export interface PageData {
+  place: PlaceContext;
+  summary: string | null; // generated in the place's default local language
   weather: WeatherData | null;
   alerts: AlertItem[] | null;
   news: NewsData | null;

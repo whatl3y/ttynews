@@ -31,6 +31,15 @@ export default {
     // box) rather than a bare entry form. Set to "" to force the landing page.
     defaultZip: process.env.DEFAULT_ZIP ?? "10001",
     zipDataPath: process.env.ZIP_DATA_PATH || "data/US.txt",
+    // Global place gazetteer (non-US cities) + GeoNames reference tables. Absent
+    // cities file -> US-only mode (run `pnpm refresh-places` to populate).
+    citiesDataPath: process.env.CITIES_DATA_PATH || "data/cities500.txt",
+    admin1Path: process.env.ADMIN1_PATH || "data/admin1Codes.txt",
+    admin2Path: process.env.ADMIN2_PATH || "data/admin2Codes.txt",
+    countryInfoPath: process.env.COUNTRY_INFO_PATH || "data/countryInfo.txt",
+    // Fallback place for private/unresolvable IPs. US -> defaultZip; elsewhere a
+    // "City, Country" resolved against the global gazetteer at boot.
+    defaultPlaceQuery: process.env.DEFAULT_PLACE_QUERY || "London, GB",
   },
 
   http: {

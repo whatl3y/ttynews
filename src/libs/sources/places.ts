@@ -43,7 +43,7 @@ export async function getPlaces(lat: number, lon: number): Promise<PlaceItem[] |
         name: p.name,
         category: p.categories?.[0]?.name || "Place",
         address,
-        distanceMi: typeof p.distance === "number" ? Math.round((p.distance / 1609) * 10) / 10 : null,
+        distanceM: typeof p.distance === "number" ? Math.round(p.distance) : null,
         website: p.website || null,
       };
     });

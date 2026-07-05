@@ -2,12 +2,13 @@ import Parser from "rss-parser";
 import config from "../../../config";
 import log from "../../../logger";
 import { fetchText } from "../../http";
+import { NewsEdition } from "../../i18n/countries";
 
 export type FeedId = "google-geo" | "google-search" | "bing" | "reddit";
 
 export interface FeedItem {
   feedId: FeedId;
-  position: number; // index within its feed - google-geo position IS Google's significance rank
+  position: number; // index within its feed — google-geo position IS Google's significance rank
   title: string;
   url: string;
   sourceName?: string;
@@ -35,7 +36,7 @@ async function parseFeed(url: string): Promise<ParsedItem[]> {
   return (feed.items || []) as ParsedItem[];
 }
 
-/** Google titles are "Headline - Source Name" - split on the LAST " - ". */
+/** Google titles are "Headline - Source Name" — split on the LAST " - ". */
 export function splitGoogleTitle(title: string): { headline: string; source?: string } {
   const idx = title.lastIndexOf(" - ");
   if (idx <= 0) return { headline: title };
@@ -50,9 +51,13 @@ function itemSource(item: ParsedItem): { name?: string; url?: string } {
   return {};
 }
 
-export async function fetchGoogleGeo(city: string, state: string): Promise<FeedItem[]> {
-  const geo = encodeURIComponent(`${city}, ${state}`);
-  const url = `https://news.google.com/rss/headlines/section/geo/${geo}?hl=en-US&gl=US&ceid=US:en`;
+function editionQuery(e: NewsEdition): string {
+  return `hl=${e.hl}&gl=${e.gl}&ceid=${encodeURIComponent(e.ceid)}`;
+}
+
+export async function fetchGoogleGeo(city: string, region: string, e: NewsEdition): Promise<FeedItem[]> {
+  const geo = encodeURIComponent(region ? `${city}, ${region}` : city);
+  const url = `https://news.google.com/rss/headlines/section/geo/${geo}?${editionQuery(e)}`;
   const items = await parseFeed(url);
   return items.map((item, position) => {
     const { headline, source } = splitGoogleTitle(item.title || "");
@@ -69,9 +74,9 @@ export async function fetchGoogleGeo(city: string, state: string): Promise<FeedI
   });
 }
 
-export async function fetchGoogleSearch(city: string, state: string): Promise<FeedItem[]> {
-  const q = encodeURIComponent(`${city} ${state} when:1d`);
-  const url = `https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`;
+export async function fetchGoogleSearch(city: string, region: string, e: NewsEdition): Promise<FeedItem[]> {
+  const q = encodeURIComponent(`${city} ${region} when:1d`);
+  const url = `https://news.google.com/rss/search?q=${q}&${editionQuery(e)}`;
   const items = await parseFeed(url);
   return items.map((item, position) => {
     const { headline, source } = splitGoogleTitle(item.title || "");
@@ -88,21 +93,19 @@ export async function fetchGoogleSearch(city: string, state: string): Promise<Fe
   });
 }
 
-/** Bing item links are bing.com/news/apiclick.aspx redirects - publisher URL is in ?url=. */
+/** Bing item links are bing.com/news/apiclick.aspx redirects — publisher URL is in ?url=. */
 export function decodeBingUrl(link: string): string {
   try {
     const parsed = new URL(link);
-    // searchParams.get already percent-decodes - decoding again would corrupt
-    // publisher URLs whose own query strings contain encoded characters.
     return parsed.searchParams.get("url") || link;
   } catch {
     return link;
   }
 }
 
-export async function fetchBing(city: string, state: string): Promise<FeedItem[]> {
-  const q = encodeURIComponent(`${city} ${state}`);
-  const url = `https://www.bing.com/news/search?q=${q}&format=rss&count=30`;
+export async function fetchBing(city: string, region: string, e: NewsEdition): Promise<FeedItem[]> {
+  const q = encodeURIComponent(`${city} ${region}`);
+  const url = `https://www.bing.com/news/search?q=${q}&format=rss&count=30&mkt=${e.mkt}&setlang=${e.lang}`;
   const items = await parseFeed(url);
   return items.map((item, position) => ({
     feedId: "bing" as const,
@@ -119,9 +122,6 @@ export async function fetchReddit(city: string): Promise<FeedItem[]> {
   if (!sub) return [];
   const url = `https://www.reddit.com/r/${sub}/top.rss?t=day`;
   const items = await parseFeed(url);
-  // Drop reddit's pinned meta posts (megathreads, daily/weekly discussion
-  // threads) without matching legitimate stories that merely contain "thread"
-  // or "weekly" as a substring.
   const META = /megathread|(?:daily|weekly|monthly|sticky)\s+(?:discussion|thread|chat)|discussion thread/i;
   return items
     .filter((item) => !META.test(item.title || ""))
@@ -139,25 +139,26 @@ export interface AllFeeds {
   corroborating: FeedItem[];
 }
 
-export async function fetchAllFeeds(city: string, state: string): Promise<AllFeeds> {
+export async function fetchAllFeeds(city: string, region: string, e: NewsEdition): Promise<AllFeeds> {
   const settle = async (label: string, p: Promise<FeedItem[]>): Promise<FeedItem[]> => {
     try {
       return await p;
     } catch (err) {
-      // google-geo is the primary feed - a failure there is worth a warn. The
-      // corroboration feeds (bing/reddit/search) fail routinely (rate limits,
-      // missing subreddits) and only enrich ranking, so log those at debug.
       const level = label === "google-geo" ? "warn" : "debug";
       log[level]({ err: (err as Error).message, label, city }, "news feed failed");
       return [];
     }
   };
 
+  // Reddit's local subreddits are English-community-centric; only query them for
+  // English editions (avoids cross-language noise + wasted fetches abroad).
+  const isEnglish = e.lang === "en";
+
   const [googleGeo, googleSearch, bing, reddit] = await Promise.all([
-    settle("google-geo", fetchGoogleGeo(city, state)),
-    settle("google-search", fetchGoogleSearch(city, state)),
-    settle("bing", fetchBing(city, state)),
-    settle("reddit", fetchReddit(city)),
+    settle("google-geo", fetchGoogleGeo(city, region, e)),
+    settle("google-search", fetchGoogleSearch(city, region, e)),
+    settle("bing", fetchBing(city, region, e)),
+    isEnglish ? settle("reddit", fetchReddit(city)) : Promise.resolve([] as FeedItem[]),
   ]);
 
   return { googleGeo, corroborating: [...googleSearch, ...bing, ...reddit] };

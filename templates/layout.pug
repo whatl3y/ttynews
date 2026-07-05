@@ -1,5 +1,5 @@
 doctype html
-html(lang="en")
+html(lang=(lang || 'en') dir=(dir || 'ltr'))
   head
     meta(charset="UTF-8")
     meta(name="viewport" content="width=device-width, initial-scale=1.0")
@@ -14,7 +14,7 @@ html(lang="en")
     meta(property="og:site_name" content=siteName)
     meta(property="og:title" content=metaTitle)
     meta(property="og:description" content=metaDesc)
-    meta(property="og:locale" content="en_US")
+    meta(property="og:locale" content=(ogLocale || 'en_US'))
     if canonicalPath != null
       meta(property="og:url" content=siteUrl + canonicalPath)
     meta(property="og:image" content=(ogImage || (siteUrl + '/og.svg')))

@@ -6,6 +6,7 @@ import bindRoutes from "./routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { compression } from "./middleware/compression";
 import { loadZipDatabase, listStates } from "./libs/geo/zipDatabase";
+import { loadPlaceDatabase } from "./libs/geo/placeDatabase";
 import { initIpLocation } from "./libs/geo/ipLocation";
 import { errorViewModel } from "./libs/presenter";
 
@@ -66,6 +67,8 @@ function validateHost(): void {
 
     // Zip database is vendored - a missing file means a broken checkout. FAIL-FAST.
     loadZipDatabase();
+    // Global place gazetteer (non-US cities). Absent file -> US-only (degrade, warn).
+    loadPlaceDatabase();
     // GeoLite2 mmdb is optional - degrades to the ipwho.is API.
     await initIpLocation();
 

@@ -9,136 +9,210 @@
    ╚═╝      ╚═╝      ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝ ╚══╝╚══╝ ╚══════╝
 ```
 
-A zip-code **local happenings terminal**. Hit `/` and tty.news geolocates your IP,
-finds your US zip code, and serves a fast, ASCII-heavy page of what's happening
-around you right now: local time, current weather + 10-day forecast, ranked local
-news, severe weather alerts, air quality, upcoming events, and recent earthquakes -
-rendered like a DOS terminal printed on paper. Any zip is addressable at `/{zipCode}`.
+A **local happenings terminal** for **any city on Earth**. Hit `/` and tty.news
+geolocates your IP and renders — in place, no redirect — a fast, ASCII-heavy page
+of what's happening around you right now: local time, current weather + 10-day
+forecast, ranked local news (in the local language), severe-weather alerts, air
+quality, upcoming events, recent earthquakes, local sports, and more — rendered
+like a DOS terminal printed on paper.
 
-Full build plan and architecture: [docs/PLAN.md](docs/PLAN.md).
+Works worldwide: units, dates, news edition, and the AI bulletin all adapt to the
+place's country, with **user toggles** for units (°C/°F) and page language.
+
+- Scope, level-of-effort, and the internationalization design: [docs/INTERNATIONAL.md](docs/INTERNATIONAL.md)
+- Original US-v1 build plan: [docs/PLAN.md](docs/PLAN.md)
+
+## How it works
+
+**Two identity systems, one page.** The US keeps its per-zip pages (the existing
+crawl graph is untouched); the rest of the world is addressed by city.
+
+| Place | URL | Backed by |
+|---|---|---|
+| US zip | `/{zipCode}` e.g. `/90210` | GeoNames US postal table (`data/US.txt`, ~41.5k zips) |
+| Any city worldwide | `/{cc}/{region}/{city}` e.g. `/gb/england/london` | GeoNames `cities500` gazetteer (`data/cities500.txt`, **~213k non-US places / 245 countries**, keyed by geonameId) |
+
+Both feed a single render pipeline. **Postal codes and IP coordinates resolve to
+the nearest known place**, so places with no/partial postal system (Ireland, Hong
+Kong, much of Africa) still work. Weather is stored canonically in **metric** and
+converted at render time, so one cached value serves every unit preference.
+
+**The `/` homepage never redirects** — it geolocates the visitor and renders their
+town in place at HTTP 200 (US visitors → their zip; everyone else → nearest city;
+private/unknown IP → `DEFAULT_ZIP` / `DEFAULT_PLACE_QUERY`). The header search box
+accepts a US zip, `"City, ST"`, or a global query like `"Paris, France"` / `"Tokyo"`.
+
+**Localization.** Units are chosen by country (US/Liberia/Myanmar imperial; UK =
+miles + °C; everywhere else metric), dates/numbers via the country's locale, news
+in the country's Google/Bing edition + language, and the AI bulletin generated in
+the local language. Two cookie-backed toggles let a visitor override units and
+switch the page into any offered language (see `/prefs`).
 
 ## Quick start
 
-**Works out of the box with zero configuration** - no API keys, no `.env` required.
+**Works out of the box with zero configuration** — no API keys, no `.env` required.
 
 ```bash
 # Docker (recommended)
 docker compose up --build
 # → http://localhost:8000
 
-# Or bare metal (Node 22 + pnpm; Redis optional but recommended)
+# Or bare metal (Node 22+ and pnpm; Redis optional but recommended)
 pnpm install
+pnpm refresh-places   # one-time: fetch the global gazetteer into data/ (see below)
 pnpm dev
 ```
 
-Without any env vars you get: weather (Open-Meteo → NWS fallback), local news
-(Google News/Bing/Reddit RSS), NWS alerts, air quality (Open-Meteo model data),
-earthquakes (USGS), local pro sports scores (NFL/NBA/MLB/NHL/WNBA via ESPN),
-sun/moon - and reverse-IP geolocation via the keyless ipwho.is API. Hitting `/` geolocates the visitor's IP and 302-redirects to their
-zip's page. When the IP can't be resolved to a US zip (a private IP in local
-dev, or a non-US/unknown IP), root falls back to `DEFAULT_ZIP` (10001) so it
-always lands on a populated page - the header zip box changes location instantly.
+> **Data note:** `data/US.txt` (US zips) is vendored. The global datasets
+> (`cities500.txt`, `admin1Codes.txt`, `admin2Codes.txt`, `countryInfo.txt`) are
+> fetched by `pnpm refresh-places`. If they're absent the app still boots but runs
+> **US-only** (a warning is logged) until you fetch them.
 
-## Optional enhancement keys (all free)
+Without any env vars you get, worldwide: weather (Open-Meteo → MET Norway → NWS
+fallbacks), local news (Google News/Bing/Reddit RSS in the local edition), severe
+alerts (NWS in the US, MeteoAlarm in Europe), air quality (Open-Meteo — US AQI in
+the Americas, European EAQI in Europe), earthquakes (USGS), local sports (US pro
+leagues + 28 international soccer leagues via ESPN), sun/moon — and reverse-IP
+geolocation via the keyless ipwho.is API.
+
+## Optional enhancement keys (all free tiers)
 
 Copy `.env.example` → `.env` and fill in what you want:
 
-| Env var | What it unlocks | Where |
+| Env var | What it unlocks | Scope |
 |---|---|---|
-| `MAXMIND_ACCOUNT_ID` / `MAXMIND_LICENSE_KEY` | Local GeoLite2 IP→zip lookups (no rate limits; run `pnpm download-geolite`, refresh Tue/Fri) | [maxmind.com/en/geolite2/signup](https://www.maxmind.com/en/geolite2/signup) |
-| `AIRNOW_API_KEY` | Hourly EPA station air quality (instead of model estimates) | [docs.airnowapi.org](https://docs.airnowapi.org) |
-| `TICKETMASTER_API_KEY` | Upcoming-events widget (merged with SeatGeek) | [developer.ticketmaster.com](https://developer.ticketmaster.com) |
-| `SEATGEEK_CLIENT_ID` | More events in the same widget (concerts/sports/theater) | [seatgeek.com/account/develop](https://seatgeek.com/account/develop) |
-| `FOURSQUARE_API_KEY` | "Food & Drink Nearby" widget | [foursquare.com/developers](https://foursquare.com/developers) |
-| `NPS_API_KEY` | "Parks" widget (national parks in your state) | [nps.gov/subjects/developer](https://www.nps.gov/subjects/developer/get-started.htm) |
-| `RIDB_API_KEY` | "Campgrounds" widget (within 25 mi) | [ridb.recreation.gov](https://ridb.recreation.gov/) |
-| `GOOGLE_POLLEN_API_KEY` | "Pollen" widget (tree/grass/weed index) | [Google Cloud Console](https://console.cloud.google.com) |
-| `GOOGLE_CIVIC_API_KEY` | "Election" widget (upcoming election + voter links) | [Google Cloud Console](https://console.cloud.google.com) |
-| `ANTHROPIC_API_KEY` | 2-3 sentence AI "what's happening" bulletin at the top of the page | [console.anthropic.com](https://console.anthropic.com) |
+| `MAXMIND_ACCOUNT_ID` / `MAXMIND_LICENSE_KEY` | Local GeoLite2 IP→location (no rate limits; run `pnpm download-geolite`, refresh Tue/Fri) | Global |
+| `AIRNOW_API_KEY` | Hourly EPA station air quality (instead of model estimates) | US only |
+| `TICKETMASTER_API_KEY` | Upcoming-events widget (geo search, ~18 countries) | Global-ish |
+| `SEATGEEK_CLIENT_ID` | More events in the same widget | US/CA |
+| `FOURSQUARE_API_KEY` | "Food & Drink Nearby"; also int'l Parks/Campgrounds | Global |
+| `NPS_API_KEY` | "Parks" widget (US national parks) | US only |
+| `RIDB_API_KEY` | "Campgrounds" widget | US only |
+| `GOOGLE_POLLEN_API_KEY` | "Pollen" widget (localized) | ~65 countries |
+| `GOOGLE_CIVIC_API_KEY` | "Election" widget (upcoming election + voter links) | US only |
+| `ANTHROPIC_API_KEY` | 2-3 sentence AI "what's happening" bulletin, in the local language | Global |
+
+Optional config: `DEFAULT_ZIP` (US fallback, default `10001`) and
+`DEFAULT_PLACE_QUERY` (non-US fallback, default `"London, GB"`) — the pages the
+homepage falls back to when an IP can't be resolved.
 
 Every source degrades gracefully: missing keys hide widgets or use keyless
 fallbacks; a down Redis means direct fetches; a down upstream hides its widget
-(and stale cache keeps serving for up to 3× TTL).
+(and stale cache keeps serving for up to 3× TTL). US-only widgets (elections,
+NPS parks, RIDB campgrounds) hide automatically outside the US.
 
 ### How to create each key
 
 All are free. Add each to `.env` (see `.env.example`) and restart. Step-by-step:
 
-- **MaxMind GeoLite2** (`MAXMIND_ACCOUNT_ID` + `MAXMIND_LICENSE_KEY`) - sign up at
+- **MaxMind GeoLite2** (`MAXMIND_ACCOUNT_ID` + `MAXMIND_LICENSE_KEY`) — sign up at
   [maxmind.com/en/geolite2/signup](https://www.maxmind.com/en/geolite2/signup) (email, no card) →
   account portal → **Manage License Keys** → generate one. Then `pnpm download-geolite`.
-- **AirNow** (`AIRNOW_API_KEY`) - request a key at
+- **AirNow** (`AIRNOW_API_KEY`) — request a key at
   [docs.airnowapi.org/account/request](https://docs.airnowapi.org/account/request/) (email, instant, no card).
-- **Ticketmaster** (`TICKETMASTER_API_KEY`) - [developer.ticketmaster.com](https://developer.ticketmaster.com)
+- **Ticketmaster** (`TICKETMASTER_API_KEY`) — [developer.ticketmaster.com](https://developer.ticketmaster.com)
   → register → **My Apps** → create an app → copy the **Consumer Key**. No card.
-- **SeatGeek** (`SEATGEEK_CLIENT_ID`) - sign in at [seatgeek.com](https://seatgeek.com) → open
-  [seatgeek.com/account/develop](https://seatgeek.com/account/develop) → add an app (name + site URL) →
-  copy the **Client ID**. Instant, no card. *(Their terms ask that you show a SeatGeek credit near event
-  listings - the footer credit covers this; add their logo if you want strict compliance.)*
-- **Foursquare** (`FOURSQUARE_API_KEY`) - create an account at
-  [foursquare.com/developers](https://foursquare.com/developers) → new project → generate a **Service Key**
-  (a bearer token). Free tier is **500 calls/month** (basic venue data only - no ratings/deals), so this
-  widget is cached 24h per zip. No card for the free tier.
-- **NPS** (`NPS_API_KEY`) - fill the form at
+- **SeatGeek** (`SEATGEEK_CLIENT_ID`) — sign in at [seatgeek.com](https://seatgeek.com) → open
+  [seatgeek.com/account/develop](https://seatgeek.com/account/develop) → add an app → copy the **Client ID**.
+- **Foursquare** (`FOURSQUARE_API_KEY`) — create an account at
+  [foursquare.com/developers](https://foursquare.com/developers) → new project → generate a **Service Key**.
+  Free tier is **500 calls/month** (basic venue data), cached hard. No card.
+- **NPS** (`NPS_API_KEY`) — form at
   [nps.gov/subjects/developer/get-started.htm](https://www.nps.gov/subjects/developer/get-started.htm)
-  (name + email) → the key is emailed within an hour. No card.
-- **Recreation.gov RIDB** (`RIDB_API_KEY`) - create a login at [recreation.gov](https://www.recreation.gov),
-  then open [ridb.recreation.gov](https://ridb.recreation.gov/) → your **profile** → **Generate API Key**. No card.
-- **Google Pollen** (`GOOGLE_POLLEN_API_KEY`) - in [Google Cloud Console](https://console.cloud.google.com):
-  create/select a project → **Billing → link a billing account (card required, even for the free 5,000
-  calls/month)** → **APIs & Services → Library → enable "Pollen API"** → **Credentials → Create API key** →
-  restrict the key to the Pollen API. Set a budget alert so you're never billed past the free cap.
-- **Google Civic** (`GOOGLE_CIVIC_API_KEY`) - same Console project: **APIs & Services → Library → enable
-  "Civic Information API"** → **Credentials → Create API key**. **No billing/card needed** (25k req/day free).
-  Note: Google removed the *representatives* lookup in 2025, so this widget shows an **upcoming election +
-  voter links** and stays hidden the rest of the year.
+  (name + email) → key emailed within an hour. No card.
+- **Recreation.gov RIDB** (`RIDB_API_KEY`) — login at [recreation.gov](https://www.recreation.gov) →
+  [ridb.recreation.gov](https://ridb.recreation.gov/) → **profile** → **Generate API Key**. No card.
+- **Google Pollen** (`GOOGLE_POLLEN_API_KEY`) — [Google Cloud Console](https://console.cloud.google.com):
+  project → **Billing** (card required even for the free 5,000/month) → enable **Pollen API** →
+  **Create API key** → restrict it. Set a budget alert.
+- **Google Civic** (`GOOGLE_CIVIC_API_KEY`) — same Console project → enable **Civic Information API** →
+  **Create API key**. No billing needed. (US-only; shows an upcoming election + voter links.)
 
 ## Routes
 
 | Route | Purpose |
 |---|---|
-| `GET /` | Geolocate IP → 302 to `/{zip}`; `?zip=NNNNN` form param wins; landing page if unresolvable |
-| `GET /{zipCode}` | The page (5-digit zips) |
-| `GET /api/{zipCode}.json` | The assembled page data as JSON |
+| `GET /` | Geolocate IP → **render the visitor's place in place at 200** (never redirects). `?q=` search resolves a US zip / "City, ST" / global place and 302s to its URL |
+| `GET /{zipCode}` | US place page (5-digit zips) |
+| `GET /{cc}/{region}/{city}` | Global city page, e.g. `/gb/england/london`, `/jp/tokyo/tokyo` |
+| `GET /us` · `GET /us/{state}` | US country hub → state hubs (directory of cities → zip pages) |
+| `GET /{cc}` · `GET /{cc}/{region}` | Country hub → region hubs (directory of cities). Legacy `/{state}` 301s to `/us/{state}` |
+| `GET /prefs?units=…&lang=…&next=…` | Sets the units/language cookie and 302s back (the header toggles) |
+| `GET /api/{zipCode}.json` | The assembled US page data as JSON |
+| `GET /sitemap.xml` | Sitemap index → pages + US zip chunks + per-country city chunks |
 | `GET /healthz` | `{ ok, zips, mmdb, redis }` |
 
 ## Verifying
 
 ```bash
-pnpm test                                        # ranker/wmo/zip-db unit tests
+pnpm test                                         # i18n, place-db, news-ranker unit + integration tests
 curl -s localhost:8000/healthz
-curl -si "localhost:8000/?zip=90210" | grep -i location   # → 302 /90210
-curl -s localhost:8000/api/37206.json | jq .weather.provider
-time curl -s localhost:8000/37206 -o /dev/null   # warm hit ≈ ms (Redis bundle cache)
+curl -si "localhost:8000/90210" | grep -i "glance-temp"           # US → °F
+curl -si "localhost:8000/gb/england/london" | grep -iE "og:locale|glance-temp"   # UK → en_GB, °C
+curl -si "localhost:8000/?q=Tokyo" | grep -i location             # → 302 /jp/tokyo/tokyo
+curl -si -H "Cookie: tp_units=metric" localhost:8000/90210 | grep glance-temp   # toggle → °C
+curl -s localhost:8000/api/90210.json | jq .weather.provider
 ```
+
+## Deploy to Heroku
+
+Container deploy (builds the `Dockerfile`, pushes to the Heroku container
+registry, releases the `web` dyno):
+
+```bash
+./deploy.sh                 # app name defaults to tty-news
+./deploy.sh my-app-name     # or a custom app
+./deploy.sh --skip-build    # re-release the last built image
+```
+
+Needs Docker running + the Heroku CLI logged in (`heroku login`). The script
+creates the app if missing, sets it to the `container` stack, and sets
+`NODE_ENV=production` + `HOST` (the web server refuses to boot in production
+without an `https://` HOST — it's the canonical/og:url origin). Redis is optional
+but recommended:
+
+```bash
+heroku addons:create heroku-redis:mini -a tty-news   # sets REDIS_URL (rediss:// TLS handled)
+```
+
+The global datasets ship in the image (run `pnpm refresh-places` before building
+so `data/cities500.txt` etc. are present). Run `pnpm download-geolite` before
+deploying to bake the GeoLite2 DB in; without it the app uses the ipwho.is fallback.
 
 ## Maintenance tasks
 
 ```bash
-pnpm refresh-zips        # refresh vendored data/US.txt from GeoNames (commit it)
-pnpm build-sports-teams  # regenerate data/sportsTeams.json from ESPN (commit it)
+pnpm refresh-zips        # refresh data/US.txt (US zips) from GeoNames (commit it)
+pnpm refresh-places      # refresh data/{cities500,admin1Codes,admin2Codes,countryInfo}.txt (commit them)
+pnpm build-sports-teams  # regenerate data/sportsTeams.json (US pro + 28 soccer leagues; commit it)
 pnpm download-geolite    # fetch GeoLite2-City.mmdb (needs MaxMind env vars)
-# in Docker:
-docker compose run --rm app node dist/tasks/downloadGeolite.js
 ```
+
+`build-sports-teams` fetches team lists from ESPN and **geocodes each soccer
+club's venue city against the gazetteer** (ESPN exposes no stadium coordinates),
+so `refresh-places` must have run first. Current table: 129 US pro teams + ~451
+soccer clubs across 28 leagues.
 
 ## Data sources & attribution
 
-- **Weather / air quality**: [Open-Meteo](https://open-meteo.com/) (CC BY 4.0) with
-  [NWS api.weather.gov](https://www.weather.gov/documentation/services-web-api) fallback (public domain)
-- **Alerts**: US National Weather Service · **Quakes**: [USGS](https://earthquake.usgs.gov/)
-- **News**: headlines via Google News / Bing News / Reddit RSS - stories link to their original publishers
-- **Sports**: local pro scores via ESPN's unofficial/undocumented public endpoints - teams and scores are property of their respective leagues; behind a graceful-degradation feature (widget hides if the endpoint changes)
-- **Events**: [Ticketmaster](https://www.ticketmaster.com) + [SeatGeek](https://seatgeek.com), merged and deduped (each keyed independently)
-- **Food & drink**: [Foursquare](https://foursquare.com) Places (free tier = basic venue data)
-- **Parks**: US National Park Service · **Campgrounds**: [Recreation.gov](https://www.recreation.gov) (RIDB)
-- **Pollen**: [Google Pollen API](https://developers.google.com/maps/documentation/pollen) · **Elections**: Google Civic Information (elections + voter links; representatives endpoint removed by Google in 2025)
+- **Weather / air quality**: [Open-Meteo](https://open-meteo.com/) (CC BY 4.0), with
+  [MET Norway](https://api.met.no/) (global) and [NWS](https://www.weather.gov/documentation/services-web-api)
+  (US) fallbacks. AQI reports US AQI (Americas) or the European EAQI (Europe). Optional US station data via AirNow.
+- **Alerts**: US [NWS](https://www.weather.gov/) · Europe **EUMETNET – MeteoAlarm** ([meteoalarm.org](https://meteoalarm.org), CC BY 4.0)
+- **Quakes**: [USGS](https://earthquake.usgs.gov/) (global)
+- **News**: headlines via Google News / Bing News / Reddit RSS in the local edition — stories link to their original publishers
+- **Sports**: US pro + international soccer scores via ESPN's unofficial/undocumented endpoints — teams/scores property of their leagues; hides gracefully if an endpoint changes
+- **Events**: [Ticketmaster](https://www.ticketmaster.com) (geo search) + [SeatGeek](https://seatgeek.com) (US/CA), merged and deduped
+- **Food & drink / int'l parks & campgrounds**: [Foursquare](https://foursquare.com) Places (free tier = basic venue data)
+- **Parks / campgrounds (US)**: US National Park Service · [Recreation.gov](https://www.recreation.gov) (RIDB)
+- **Pollen**: [Google Pollen API](https://developers.google.com/maps/documentation/pollen) · **Elections (US)**: Google Civic Information
 - **Geo**: includes GeoLite2 data created by MaxMind ([maxmind.com](https://www.maxmind.com));
-  zip → place data from [GeoNames](https://www.geonames.org/) (CC BY 4.0)
-- **Type**: [The Ultimate Oldschool PC Font Pack](https://int10h.org/oldschool-pc-fonts/)
-  by VileR (CC BY-SA 4.0) - see `public/fonts/LICENSE.txt`
+  place + postal data from [GeoNames](https://www.geonames.org/) (CC BY 4.0)
+- **Type**: [The Ultimate Oldschool PC Font Pack](https://int10h.org/oldschool-pc-fonts/) by VileR (CC BY-SA 4.0)
 - **ASCII weather art**: adapted from [wego](https://github.com/schachmat/wego) (ISC)
 
-Open-Meteo's keyless tier and the Google/Bing RSS feeds are for non-commercial
-use - fine for a hobby deployment. If this ever monetizes, flip weather to
-NWS-primary and news to direct station RSS feeds (see docs/PLAN.md §12).
+Open-Meteo's keyless tier and the Google/Bing RSS feeds are for **non-commercial**
+use — fine for a hobby deployment. Commercial use requires a paid Open-Meteo plan
+and licensed news sources; the code is structured so those swap in per-source. See
+[docs/INTERNATIONAL.md](docs/INTERNATIONAL.md) §13 and `docs/COMPLIANCE.md` for the
+full commercial checklist.
