@@ -5,6 +5,7 @@ import { placeToContext } from "../libs/geo/context";
 import { assemblePage, localize } from "../libs/sources";
 import { toViewModel, errorViewModel, resolvePrefs } from "../libs/presenter";
 import { readPrefs } from "../libs/prefs";
+import { isCacheOnly } from "../libs/requestContext";
 
 export const cityPage: IRoute = {
   // Global city page: /{cc}/{admin1-slug}/{city-slug} (lowercase 2-letter country
@@ -27,8 +28,13 @@ export const cityPage: IRoute = {
     // Bulletin + news headlines localized to the visitor's language preference.
     await localize(data, prefs);
     // Vary on Cookie so a units/language toggle isn't masked by a cached copy.
+    // Cache-only (crawler/over-budget) renders may be near-empty shells and
+    // must never enter a shared cache as the page for the next 90 seconds.
     res.set("Vary", "Cookie");
-    res.set("Cache-Control", "public, max-age=0, s-maxage=90, stale-while-revalidate=270");
+    res.set(
+      "Cache-Control",
+      isCacheOnly() ? "private, max-age=0" : "public, max-age=0, s-maxage=90, stale-while-revalidate=270",
+    );
     res.render("zip", toViewModel(data, { prefs }));
   },
 };

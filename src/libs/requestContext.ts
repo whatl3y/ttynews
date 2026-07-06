@@ -15,6 +15,23 @@ export interface RequestContext {
    * distinct URL. Pages still render and stay indexable from whatever is cached.
    */
   cacheOnly: boolean;
+  /**
+   * Blocks only the getOrSet call sites flagged `metered: true` (Anthropic LLM
+   * calls, Foursquare's 500-req/month tier) from originating upstream calls,
+   * while free upstreams (Open-Meteo, RSS, USGS…) fetch normally. Set for
+   * terminal (curl) clients: an interactive human gets a live page, but a curl
+   * loop over 41k zips can never burn the paid quotas - cached LLM bulletins /
+   * venues still serve, cold ones hide.
+   */
+  skipMetered?: boolean;
+  /**
+   * Lazy per-request upstream-fetch budget check. Consulted by getOrSet the
+   * FIRST time the request would actually originate an upstream call (cold
+   * miss or stale revalidation) - so fully-cached browsing costs no budget.
+   * Returns false when the request is over budget, flipping it into cache-only
+   * mode. MUST be memoized by the provider (one budget charge per request).
+   */
+  coldFetchAllowed?: () => boolean;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -31,4 +48,18 @@ export function runWithContext<T>(ctx: RequestContext, fn: () => T): T {
  */
 export function isCacheOnly(): boolean {
   return storage.getStore()?.cacheOnly ?? false;
+}
+
+/** True when metered upstreams (LLM, Foursquare) must not be cold-fetched. */
+export function isMeteredBlocked(): boolean {
+  return storage.getStore()?.skipMetered ?? false;
+}
+
+/**
+ * Consult the request's upstream-fetch budget (true = may fetch). Defaults to
+ * true when the request set no budget - browsers, boot, tasks, tests.
+ */
+export function coldFetchAllowed(): boolean {
+  const check = storage.getStore()?.coldFetchAllowed;
+  return check ? check() : true;
 }

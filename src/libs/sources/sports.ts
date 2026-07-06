@@ -76,6 +76,7 @@ function toGame(row: TeamRow, event: ScoreboardEvent): SportsGame | null {
 
   return {
     league: row.leagueLabel,
+    leagueCode: row.league.toUpperCase(),
     team: row.name,
     teamAbbrev: row.abbrev,
     opponentAbbrev: them.team.abbreviation || "OPP",

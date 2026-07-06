@@ -1,7 +1,7 @@
 import redis from "../redis";
 import config from "../config";
 import log from "../logger";
-import { isCacheOnly } from "./requestContext";
+import { isCacheOnly, isMeteredBlocked, coldFetchAllowed } from "./requestContext";
 
 interface Envelope<T> {
   v: T;
@@ -12,6 +12,13 @@ export interface GetOrSetOpts {
   ttlSeconds: number;
   /** Serve stale entries up to staleFactor × TTL while revalidating in the background. */
   staleFactor?: number;
+  /**
+   * Marks a fetcher that spends a paid / hard-quota upstream (Anthropic LLM,
+   * Foursquare 500/mo). Requests flagged skipMetered (terminal clients - see
+   * requestContext) treat these call sites as cache-only: cached values serve,
+   * cold misses return null instead of spending quota.
+   */
+  metered?: boolean;
 }
 
 // Coalesce concurrent fetches per key so a hot key hits upstream once.
@@ -82,7 +89,11 @@ export async function getOrSet<T>(
 
   if (env && ageSeconds < opts.ttlSeconds) return env.v;
 
-  const cacheOnly = isCacheOnly();
+  // Crawlers block every upstream; terminal clients block only metered ones,
+  // and consult their lazy per-request fetch budget the first time a request
+  // would actually originate an upstream call (fresh hits returned above).
+  const cacheOnly =
+    isCacheOnly() || (opts.metered === true && isMeteredBlocked()) || !coldFetchAllowed();
 
   if (env) {
     // Stale: serve immediately. Revalidate in the background (fire-and-forget) -

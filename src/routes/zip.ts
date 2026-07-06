@@ -5,6 +5,7 @@ import { zipToContext } from "../libs/geo/context";
 import { assemblePage, localize } from "../libs/sources";
 import { toViewModel, errorViewModel, resolvePrefs } from "../libs/presenter";
 import { readPrefs } from "../libs/prefs";
+import { isCacheOnly } from "../libs/requestContext";
 
 export const zipPage: IRoute = {
   // Regex param: non-5-digit paths fall through to the 404 handler,
@@ -22,8 +23,13 @@ export const zipPage: IRoute = {
     await localize(data, prefs);
     // The page varies by the units/language cookie, so caches MUST key on it -
     // otherwise a toggle appears to do nothing (a stale copy is served).
+    // Cache-only (crawler/over-budget) renders may be near-empty shells and
+    // must never enter a shared cache as the page for the next 90 seconds.
     res.set("Vary", "Cookie");
-    res.set("Cache-Control", "public, max-age=0, s-maxage=90, stale-while-revalidate=270");
+    res.set(
+      "Cache-Control",
+      isCacheOnly() ? "private, max-age=0" : "public, max-age=0, s-maxage=90, stale-while-revalidate=270",
+    );
     res.render("zip", toViewModel(data, { prefs }));
   },
 };

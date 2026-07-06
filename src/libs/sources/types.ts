@@ -149,6 +149,7 @@ export interface ElectionInfo {
 
 export interface SportsGame {
   league: string; // "MLB" | "Premier League"
+  leagueCode: string; // compact ESPN id for fixed-width layouts: "MLB" | "ENG.1"
   team: string; // "New York Yankees"
   teamAbbrev: string;
   opponentAbbrev: string;

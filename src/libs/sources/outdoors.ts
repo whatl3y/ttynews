@@ -122,7 +122,7 @@ async function fsqSearch(lat: number, lon: number, categories: string, radius: n
 
 export async function getIntlParks(lat: number, lon: number): Promise<ParkItem[] | null> {
   if (!config.foursquare.apiKey) return null;
-  return getOrSet(`iparks:v1:${lat.toFixed(2)},${lon.toFixed(2)}`, { ttlSeconds: config.cache.parksTtl }, async () => {
+  return getOrSet(`iparks:v1:${lat.toFixed(2)},${lon.toFixed(2)}`, { ttlSeconds: config.cache.parksTtl, metered: true }, async () => {
     const results = await fsqSearch(lat, lon, FSQ_PARK_CATEGORIES, 25000);
     return results.map((p) => ({
       name: p.name,
@@ -135,7 +135,7 @@ export async function getIntlParks(lat: number, lon: number): Promise<ParkItem[]
 
 export async function getIntlCamps(lat: number, lon: number): Promise<CampItem[] | null> {
   if (!config.foursquare.apiKey) return null;
-  return getOrSet(`icamps:v1:${lat.toFixed(2)},${lon.toFixed(2)}`, { ttlSeconds: config.cache.campsTtl }, async () => {
+  return getOrSet(`icamps:v1:${lat.toFixed(2)},${lon.toFixed(2)}`, { ttlSeconds: config.cache.campsTtl, metered: true }, async () => {
     const results = await fsqSearch(lat, lon, FSQ_CAMP_CATEGORY, 30000);
     return results.map((c) => ({
       name: c.name,

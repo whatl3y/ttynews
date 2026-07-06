@@ -109,7 +109,13 @@ export async function assemblePage(ctx: PlaceContext): Promise<PageData> {
   if (config.cache.pageBundleTtl > 0) {
     const bundled = await getOrSet(
       `page:v2:${ctx.id}`,
-      { ttlSeconds: config.cache.pageBundleTtl, staleFactor: 1 },
+      // metered: a skipMetered (terminal-client) build runs with its metered
+      // sub-sources blocked, so it would write a bundle MISSING the Foursquare
+      // widgets that every browser would then be served for the bundle TTL.
+      // Flagging the bundle keeps such requests read-only here: they still get
+      // fresh/stale bundles built by browsers, but on a miss they fall through
+      // to a direct build() below and never poison the shared bundle.
+      { ttlSeconds: config.cache.pageBundleTtl, staleFactor: 1, metered: true },
       () => build(ctx),
     );
     if (bundled) return bundled;

@@ -2,8 +2,15 @@ import { Request, Response } from "express";
 import { IRoute } from "./index";
 import config from "../config";
 import { getZip, resolveLocationToZip, isUsStateToken } from "../libs/geo/zipDatabase";
-import { resolveCityQuery, resolveCountryToken, usCityPopulation, snapToNearest } from "../libs/geo/placeDatabase";
+import {
+  resolveCityQuery,
+  resolveCountryToken,
+  usCityPopulation,
+  snapToNearest,
+  getCityByPath,
+} from "../libs/geo/placeDatabase";
 import { zipToContext, placeToContext } from "../libs/geo/context";
+import { TtyDetection } from "../middleware/tty";
 import { lookupIp } from "../libs/geo/ipLocation";
 import { assemblePage, localize } from "../libs/sources";
 import { PlaceContext } from "../libs/sources/types";
@@ -58,6 +65,21 @@ function searchTarget(query: string): string | null {
   return null;
 }
 
+/** Reverse a searchTarget() path back to its place context (for tty in-place rendering). */
+function contextForPath(path: string): PlaceContext | null {
+  const zipMatch = /^\/(\d{5})$/.exec(path);
+  if (zipMatch) {
+    const zipInfo = getZip(zipMatch[1]);
+    return zipInfo ? zipToContext(zipInfo) : null;
+  }
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length === 3) {
+    const place = getCityByPath(parts[0], parts[1], parts[2]);
+    return place ? placeToContext(place) : null;
+  }
+  return null;
+}
+
 // Render a place's full page IN PLACE at "/" (200, no redirect) as the homepage.
 async function renderAsHome(req: Request, res: Response, ctx: PlaceContext): Promise<void> {
   const data = await assemblePage(ctx);
@@ -84,7 +106,16 @@ export const home: IRoute = {
           : "";
     if (query) {
       const target = searchTarget(query);
-      if (target) return res.redirect(302, target);
+      if (target) {
+        // Terminal clients get the resolved page IN PLACE (200): curl does not
+        // follow a 302 without -L, and the redirect would drop a ?tty flag.
+        // Browsers keep the redirect so the clean URL stays canonical.
+        if ((res.locals.ttyDetect as TtyDetection | undefined)?.tty) {
+          const ctx = contextForPath(target);
+          if (ctx) return renderAsHome(req, res, ctx);
+        }
+        return res.redirect(302, target);
+      }
       // Submitted but unresolvable - landing page with an error state (noindex 404).
       return res.status(404).render("index", landingViewModel({ badQuery: query }));
     }

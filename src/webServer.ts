@@ -11,6 +11,8 @@ import { initIpLocation } from "./libs/geo/ipLocation";
 import { errorViewModel } from "./libs/presenter";
 import { runWithContext } from "./libs/requestContext";
 import { isBot } from "./libs/botDetect";
+import { tty, ttyBuildBudget, isCliClient, TtyDetection } from "./middleware/tty";
+import { RequestContext } from "./libs/requestContext";
 
 /**
  * `config.server.host` is emitted verbatim as <link rel=canonical> and og:url on
@@ -74,13 +76,52 @@ function validateHost(): void {
     // GeoLite2 mmdb is optional - degrades to the ipwho.is API.
     await initIpLocation();
 
+    // Terminal (curl) output mode. NOTE: this middleware WRAPS res.render for
+    // the whole route tree (including the 404 handler and errorHandler below) -
+    // when a request is tty-detected, every page render emits ANSI text
+    // instead of HTML. See middleware/tty.ts.
+    app.use(tty);
+
     // Crawler requests run in cache-only mode: they read caches but never trigger
     // an upstream fetch (see getOrSet), so a full sitemap crawl of the 41k+ zip
     // URLs can't hammer the paid / rate-limited APIs. Bind the async-context store
     // around the whole request so every downstream source + LLM call sees the flag
     // without it being threaded through. Mounted last so it wraps the route tree.
-    app.use((req, _res, next) => {
-      runWithContext({ cacheOnly: isBot(req.get("user-agent")) }, () => next());
+    //
+    // Terminal clients (curl & friends - which CRAWLER_UA also matches) are the
+    // exception: a human is watching, so they may build cold pages from the
+    // FREE upstreams, while the metered ones (Anthropic, Foursquare) stay
+    // cache-only via skipMetered. The per-IP budget is charged LAZILY - only
+    // when a request actually originates an upstream fetch (see getOrSet), so
+    // cached browsing is free; over budget a request degrades to cache-only
+    // mode and the page still renders from whatever is cached.
+    // A CLI client that explicitly opted OUT of tty (?tty=0) is treated as
+    // automation, same as curl/wget already are via CRAWLER_UA - otherwise
+    // httpie/xh/powershell with ?tty=0 would land on the full browser tier.
+    app.use((req, res, next) => {
+      const det = res.locals.ttyDetect as TtyDetection | undefined;
+      const ua = req.get("user-agent");
+      let ctx: RequestContext;
+      if (det?.tty) {
+        let allowed: boolean | null = null; // memoized: one budget charge per request
+        ctx = {
+          cacheOnly: false,
+          skipMetered: true,
+          coldFetchAllowed: () => {
+            if (allowed === null) {
+              allowed = ttyBuildBudget(req.ip || "unknown");
+              if (!allowed) log.warn({ ip: req.ip, path: req.path }, "tty build budget exhausted - serving cache-only");
+            }
+            return allowed;
+          },
+        };
+      } else {
+        ctx = { cacheOnly: isBot(ua) || isCliClient(ua) };
+      }
+      if (det?.tty) {
+        log.info({ path: req.path, ip: req.ip, source: det.source }, "tty request");
+      }
+      runWithContext(ctx, () => next());
     });
 
     bindRoutes(app);

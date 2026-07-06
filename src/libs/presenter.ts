@@ -394,6 +394,7 @@ export function toViewModel(
     })),
     sports: (data.sports || []).map((g) => ({
       league: g.league,
+      leagueCode: g.leagueCode,
       matchup: `${g.teamAbbrev} ${g.homeAway} ${g.opponentAbbrev}`,
       score: g.teamScore != null && g.oppScore != null ? `${g.teamScore}-${g.oppScore}` : null,
       detail:
@@ -472,6 +473,11 @@ export function landingViewModel(opts: { badQuery?: string }): Record<string, un
     structuredData: isBadQuery ? [] : [siteSchema()],
     masthead: MASTHEAD,
     badQuery: opts.badQuery || null,
+    // Single source for the hero copy so the HTML and tty renderings can never
+    // drift apart (index.pug previously hardcoded a stale US-only line).
+    heroMsg: t("hero.msg", "en"),
+    notFoundMsg: isBadQuery ? t("hero.notFound", "en", { q: opts.badQuery! }) : null,
+    readyMsg: t("hero.ready", "en"),
   };
 }
 
@@ -538,6 +544,10 @@ export function stateViewModel(code: string): Record<string, unknown> | null {
     stateName: name,
     stateCode: lc,
     cities,
+    // state.pug builds its breadcrumb/tagline inline from stateName; these two
+    // exist for the tty renderer, which shares one hub renderer across views.
+    crumbs: [{ name: config.siteName, href: "/" }, { name }] as Crumb[],
+    intro: `Local news & weather by city across ${name}`,
   };
 }
 

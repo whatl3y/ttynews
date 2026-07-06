@@ -86,7 +86,7 @@ export async function getSummary(
 
   return getOrSet(
     `sum:v3:${lang}:${measurement}:${cacheKey}`,
-    { ttlSeconds: config.cache.summaryTtl, staleFactor: 2 },
+    { ttlSeconds: config.cache.summaryTtl, staleFactor: 2, metered: true },
     async () => {
       const msg = await anthropic.messages.create(
         {

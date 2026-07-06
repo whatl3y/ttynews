@@ -22,6 +22,49 @@ place's country, with **user toggles** for units (°C/°F) and page language.
 - Scope, level-of-effort, and the internationalization design: [docs/INTERNATIONAL.md](docs/INTERNATIONAL.md)
 - Original US-v1 build plan: [docs/PLAN.md](docs/PLAN.md)
 
+## Use it from a terminal
+
+The same pages render as **ANSI text in your terminal** — green phosphor, box-drawn
+panels, weather icons and all. `curl` (and wget, HTTPie, xh, PowerShell, …) is
+detected automatically; browsers keep getting HTML at the same URLs.
+
+```bash
+curl tty.news                      # your town (IP-geolocated), zero flags
+curl tty.news/90210                # any US zip
+curl tty.news/gb/england/london    # any city worldwide
+curl 'tty.news/?q=paris, france'   # search - renders the match in place (no -L needed)
+curl tty.news/us                   # browse: state → city directories
+```
+
+(Substitute `localhost:8000` when running locally. On Windows, use `curl.exe` —
+in PowerShell 5.1 plain `curl` aliases to `Invoke-WebRequest`, which prints a
+response object instead of the page.)
+
+**Flags** (combine freely):
+
+| Flag | Effect |
+|---|---|
+| `?tty=1` / `?tty=0` | Force terminal output on/off (overrides auto-detection; `?format=ansi\|html` works too) |
+| `?T` (or `?plain`) | Strip all colors — the HTTP stand-in for `NO_COLOR` |
+| `?w=120` | Target width in columns (default 80, clamped 40–200) |
+| `?units=metric` / `?units=imperial` | Units override (no cookies needed) |
+| `?lang=es` | Page language override (any offered 2-letter code) |
+| `?links` | Emit OSC 8 hyperlinks — headlines become clickable in iTerm2 / Windows Terminal / kitty / WezTerm |
+| `?ascii` | Pure-ASCII glyphs (`+-\|#`) for terminals that mangle box-drawing characters |
+
+Handy combos:
+
+```bash
+curl 'tty.news/90210?w=120&links'        # wide + clickable headlines
+curl -s 'tty.news/10001' | less -R       # page through it, colors intact
+watch -n 300 -c 'curl -s tty.news/60601' # a live dashboard in a spare terminal
+curl 'tty.news/jp/tokyo/tokyo?lang=en'   # Tokyo, chrome + bulletin in English
+curl 'tty.news/90210?T&ascii'            # maximum-compatibility plain text
+```
+
+If auto-detection misses your client, `curl -H 'Accept: text/plain' …` or
+`?tty=1` always works; `?tty=0` gets you the HTML from a terminal client.
+
 ## How it works
 
 **Two identity systems, one page.** The US keeps its per-zip pages (the existing
@@ -132,7 +175,7 @@ All are free. Add each to `.env` (see `.env.example`) and restart. Step-by-step:
 
 | Route | Purpose |
 |---|---|
-| `GET /` | Geolocate IP → **render the visitor's place in place at 200** (never redirects). `?q=` search resolves a US zip / "City, ST" / global place and 302s to its URL |
+| `GET /` | Geolocate IP → **render the visitor's place in place at 200** (never redirects). `?q=` search resolves a US zip / "City, ST" / global place and 302s to its URL (terminal clients get the match rendered in place at 200) |
 | `GET /{zipCode}` | US place page (5-digit zips) |
 | `GET /{cc}/{region}/{city}` | Global city page, e.g. `/gb/england/london`, `/jp/tokyo/tokyo` |
 | `GET /us` · `GET /us/{state}` | US country hub → state hubs (directory of cities → zip pages) |
@@ -145,12 +188,13 @@ All are free. Add each to `.env` (see `.env.example`) and restart. Step-by-step:
 ## Verifying
 
 ```bash
-pnpm test                                         # i18n, place-db, news-ranker unit + integration tests
+pnpm test                                         # i18n, place-db, news-ranker, tty-renderer unit + integration tests
 curl -s localhost:8000/healthz
-curl -si "localhost:8000/90210" | grep -i "glance-temp"           # US → °F
-curl -si "localhost:8000/gb/england/london" | grep -iE "og:locale|glance-temp"   # UK → en_GB, °C
-curl -si "localhost:8000/?q=Tokyo" | grep -i location             # → 302 /jp/tokyo/tokyo
-curl -si -H "Cookie: tp_units=metric" localhost:8000/90210 | grep glance-temp   # toggle → °C
+curl -s "localhost:8000/90210"                                    # terminal (ANSI) rendering - curl is auto-detected
+curl -si "localhost:8000/90210?tty=0" | grep -i "glance-temp"     # forced HTML → US °F
+curl -si "localhost:8000/gb/england/london?tty=0" | grep -iE "og:locale|glance-temp"   # UK → en_GB, °C
+curl -si -A "Mozilla/5.0" "localhost:8000/?q=Tokyo" | grep -i location   # browser UA → 302 /jp/tokyo/tokyo
+curl -s "localhost:8000/90210?units=metric&T" | grep "°C"         # terminal units override
 curl -s localhost:8000/api/90210.json | jq .weather.provider
 ```
 

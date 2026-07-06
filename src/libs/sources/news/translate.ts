@@ -38,7 +38,7 @@ export async function translateStories(
   const titles = stories.map((s) => s.title);
   const translated = await getOrSet(
     `newsxl:v1:${toLang}:${cacheKey}`,
-    { ttlSeconds: config.cache.newsTtl, staleFactor: 2 },
+    { ttlSeconds: config.cache.newsTtl, staleFactor: 2, metered: true },
     async () => {
       const msg = await anthropic.messages.create(
         {

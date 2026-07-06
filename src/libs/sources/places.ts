@@ -24,7 +24,7 @@ export async function getPlaces(lat: number, lon: number): Promise<PlaceItem[] |
   if (!config.foursquare.apiKey) return null;
 
   const key = `places:v1:${lat.toFixed(2)},${lon.toFixed(2)}`;
-  return getOrSet(key, { ttlSeconds: config.cache.placesTtl }, async () => {
+  return getOrSet(key, { ttlSeconds: config.cache.placesTtl, metered: true }, async () => {
     const url =
       "https://places-api.foursquare.com/places/search" +
       `?ll=${lat},${lon}&radius=3000&fsq_category_ids=${FOOD_CATEGORY}` +
