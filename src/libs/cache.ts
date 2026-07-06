@@ -1,6 +1,7 @@
 import redis from "../redis";
 import config from "../config";
 import log from "../logger";
+import { isCacheOnly } from "./requestContext";
 
 interface Envelope<T> {
   v: T;
@@ -65,6 +66,11 @@ function startFetch<T>(
  *   recently-seen key.
  * - Miss: coalesced synchronous fetch. Fetch failure → null (callers hide the widget).
  * - Redis being down degrades to a direct fetch: slower site, never a down site.
+ *
+ * Cache-only mode (crawler requests, see requestContext) short-circuits every
+ * path that would originate an upstream call: a stale entry is served WITHOUT the
+ * background revalidation, and a miss returns null instead of fetching. A crawl
+ * therefore reads the cache but never hits an upstream API, whatever it requests.
  */
 export async function getOrSet<T>(
   key: string,
@@ -76,11 +82,17 @@ export async function getOrSet<T>(
 
   if (env && ageSeconds < opts.ttlSeconds) return env.v;
 
+  const cacheOnly = isCacheOnly();
+
   if (env) {
-    // Stale: serve immediately, revalidate in the background (fire-and-forget).
-    if (!inFlight.has(key)) startFetch(key, opts, fetcher);
+    // Stale: serve immediately. Revalidate in the background (fire-and-forget) -
+    // but never for a crawler, which must not originate an upstream call.
+    if (!cacheOnly && !inFlight.has(key)) startFetch(key, opts, fetcher);
     return env.v;
   }
+
+  // Miss. A crawler gets null (the widget hides) rather than a cold upstream hit.
+  if (cacheOnly) return null;
 
   if (inFlight.has(key)) return inFlight.get(key) as Promise<T | null>;
   return startFetch(key, opts, fetcher);

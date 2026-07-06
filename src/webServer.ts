@@ -9,6 +9,8 @@ import { loadZipDatabase, listStates } from "./libs/geo/zipDatabase";
 import { loadPlaceDatabase } from "./libs/geo/placeDatabase";
 import { initIpLocation } from "./libs/geo/ipLocation";
 import { errorViewModel } from "./libs/presenter";
+import { runWithContext } from "./libs/requestContext";
+import { isBot } from "./libs/botDetect";
 
 /**
  * `config.server.host` is emitted verbatim as <link rel=canonical> and og:url on
@@ -71,6 +73,15 @@ function validateHost(): void {
     loadPlaceDatabase();
     // GeoLite2 mmdb is optional - degrades to the ipwho.is API.
     await initIpLocation();
+
+    // Crawler requests run in cache-only mode: they read caches but never trigger
+    // an upstream fetch (see getOrSet), so a full sitemap crawl of the 41k+ zip
+    // URLs can't hammer the paid / rate-limited APIs. Bind the async-context store
+    // around the whole request so every downstream source + LLM call sees the flag
+    // without it being threaded through. Mounted last so it wraps the route tree.
+    app.use((req, _res, next) => {
+      runWithContext({ cacheOnly: isBot(req.get("user-agent")) }, () => next());
+    });
 
     bindRoutes(app);
 

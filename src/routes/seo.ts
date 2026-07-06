@@ -33,13 +33,74 @@ function chunksFor(count: number): number {
   return Math.max(1, Math.ceil(count / CHUNK));
 }
 
-/** robots.txt with the absolute, config-driven Sitemap: directive. */
+// Crawlers we disallow outright. Each triggers the SAME expensive cold page build
+// as a search indexer - a full upstream fan-out + LLM summary per distinct URL -
+// while returning ~zero search or referral traffic: AI-training scrapers, SEO-
+// analytics bots, and known-aggressive crawlers. Search indexers (Googlebot,
+// Bingbot, DuckDuckBot, Applebot) are deliberately ABSENT: indexing the 41k+ zip
+// pages is the entire point of the site, so blocking them would deindex it.
+//
+// robots.txt is advisory - the worst offenders (Bytespider, some GPTBot traffic)
+// ignore it. That is why crawler requests ALSO run server-side in cache-only mode
+// (see requestContext/botDetect): this file sheds the polite bots; cache-only caps
+// the upstream cost of the ones that don't listen. Tune freely - e.g. drop
+// OAI-SearchBot / PerplexityBot if you want their AI-search referral traffic.
+const BLOCKED_CRAWLERS = [
+  "GPTBot", // OpenAI training crawler
+  "OAI-SearchBot", // OpenAI search index (drives ChatGPT referrals - remove to keep them)
+  "ChatGPT-User", // ChatGPT user-initiated fetch
+  "anthropic-ai",
+  "ClaudeBot",
+  "Claude-Web",
+  "Google-Extended", // AI-training opt-out only; does NOT crawl, so no load impact
+  "Applebot-Extended", // AI-training opt-out only (Applebot itself stays allowed)
+  "CCBot", // Common Crawl
+  "PerplexityBot",
+  "Bytespider", // ByteDance - aggressive, frequently ignores robots.txt
+  "Amazonbot",
+  "meta-externalagent", // Meta AI
+  "FacebookBot",
+  "Diffbot",
+  "cohere-ai",
+  "YouBot",
+  "ImagesiftBot",
+  "PetalBot", // Huawei
+  "DataForSeoBot",
+  "AhrefsBot", // SEO-analytics - remove if YOU use Ahrefs on this site
+  "SemrushBot", // SEO-analytics - remove if YOU use Semrush on this site
+  "MJ12bot",
+  "DotBot",
+];
+
+/**
+ * robots.txt: block the AI/SEO/junk crawlers above (they cost cold builds for no
+ * traffic), throttle the polite indexers, and advertise the sitemap. The absolute
+ * Sitemap: directive is config-driven off the canonical origin.
+ */
 export const robots: IRoute = {
   path: "/robots.txt",
   handler(_req: Request, res: Response) {
-    const body = cached("robots", () =>
-      ["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /prefs", "", `Sitemap: ${origin()}/sitemap.xml`, ""].join("\n"),
-    );
+    const body = cached("robots", () => {
+      const lines: string[] = [];
+      // One block-everything group per unwanted crawler.
+      for (const ua of BLOCKED_CRAWLERS) {
+        lines.push(`User-agent: ${ua}`, "Disallow: /", "");
+      }
+      // Everyone else (search indexers, real users' tools): crawl everything except
+      // the JSON API and the prefs endpoint. Crawl-delay throttles the polite non-
+      // Google bots (Bing/Yandex honour it; Google's rate is set in Search Console).
+      lines.push(
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /api/",
+        "Disallow: /prefs",
+        "Crawl-delay: 10",
+        "",
+        `Sitemap: ${origin()}/sitemap.xml`,
+        "",
+      );
+      return lines.join("\n");
+    });
     res.type("text/plain").send(body);
   },
 };
