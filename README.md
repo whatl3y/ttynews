@@ -91,6 +91,18 @@ in the country's Google/Bing edition + language, and the AI bulletin generated i
 the local language. Two cookie-backed toggles let a visitor override units and
 switch the page into any offered language (see `/prefs`).
 
+**Crawlers cost nothing upstream.** Search indexers (Googlebot, Bingbot, Applebot)
+are welcome — the 41.5k zip + ~213k city pages are the point — but they run in
+**cache-only** mode: a crawl reads caches and renders a fully indexable page, yet
+never originates a live upstream call, so a full sitemap sweep can't hammer the
+rate-limited/paid APIs. AI-scraper and SEO-analytics bots are `Disallow`-ed in
+`robots.txt`; terminal (`curl`) clients get the free upstreams live but never the
+metered ones (Foursquare, Anthropic). To keep the pages crawlers *see* rich rather
+than thin, a background **warmer** keeps the hottest zips' caches fresh — the zips
+real visitors actually view (`WARM_*`, see `.env.example`; runs in-process, or
+`pnpm warm-zips`). Foursquare's 500-calls/month free tier is guarded by a hard
+server-wide monthly cap (`FOURSQUARE_MONTHLY_BUDGET`, default 450).
+
 ## Quick start
 
 **Works out of the box with zero configuration** — no API keys, no `.env` required.
@@ -137,7 +149,9 @@ Copy `.env.example` → `.env` and fill in what you want:
 
 Optional config: `DEFAULT_ZIP` (US fallback, default `10001`) and
 `DEFAULT_PLACE_QUERY` (non-US fallback, default `"London, GB"`) — the pages the
-homepage falls back to when an IP can't be resolved.
+homepage falls back to when an IP can't be resolved. Priority-zip warmer +
+Foursquare monthly cap (`WARM_*`, `FOURSQUARE_MONTHLY_BUDGET`) are documented in
+`.env.example`; the warmer defaults on in production, off in dev.
 
 Every source degrades gracefully: missing keys hide widgets or use keyless
 fallbacks; a down Redis means direct fetches; a down upstream hides its widget
@@ -230,6 +244,7 @@ pnpm refresh-zips        # refresh data/US.txt (US zips) from GeoNames (commit i
 pnpm refresh-places      # refresh data/{cities500,admin1Codes,admin2Codes,countryInfo}.txt (commit them)
 pnpm build-sports-teams  # regenerate data/sportsTeams.json (US pro + 28 soccer leagues; commit it)
 pnpm download-geolite    # fetch GeoLite2-City.mmdb (needs MaxMind env vars)
+pnpm warm-zips           # warm the hottest zips' caches once (also runs in-process; see WARM_* env)
 ```
 
 `build-sports-teams` fetches team lists from ESPN and **geocodes each soccer

@@ -1,6 +1,7 @@
 import config from "../../config";
 import { getOrSet } from "../cache";
 import { fetchJson } from "../http";
+import { consumeMonthlyBudget } from "../budget";
 import { ParkItem, CampItem } from "./types";
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -106,6 +107,8 @@ const FSQ_PARK_CATEGORIES = "4bf58dd8d48988d163941735,52e81612bcbc57f1066b7a21";
 const FSQ_CAMP_CATEGORY = "4bf58dd8d48988d1e3941735";
 
 async function fsqSearch(lat: number, lon: number, categories: string, radius: number): Promise<FsqPlace[]> {
+  // Shares Foursquare's 500/month cap with getPlaces - []; caller hides the widget.
+  if (!(await consumeMonthlyBudget("foursquare", config.foursquare.monthlyBudget))) return [];
   const url =
     "https://places-api.foursquare.com/places/search" +
     `?ll=${lat},${lon}&radius=${radius}&fsq_category_ids=${categories}` +

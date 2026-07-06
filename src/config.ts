@@ -87,6 +87,10 @@ export default {
 
   foursquare: {
     apiKey: process.env.FOURSQUARE_API_KEY, // optional - nearby-places widget hidden when absent
+    // Hard monthly cap on Foursquare cold fetches (free tier is 500/month across
+    // places + intl parks/camps). Default leaves headroom under 500. Once spent,
+    // the venue/park/camp widgets hide until the month resets. See libs/budget.
+    monthlyBudget: parseInt(process.env.FOURSQUARE_MONTHLY_BUDGET || "450", 10),
   },
 
   nps: {

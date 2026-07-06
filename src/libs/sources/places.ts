@@ -1,6 +1,7 @@
 import config from "../../config";
 import { getOrSet } from "../cache";
 import { fetchJson } from "../http";
+import { consumeMonthlyBudget } from "../budget";
 import { PlaceItem } from "./types";
 
 // Foursquare "Dining and Drinking" top-level category.
@@ -25,6 +26,8 @@ export async function getPlaces(lat: number, lon: number): Promise<PlaceItem[] |
 
   const key = `places:v1:${lat.toFixed(2)},${lon.toFixed(2)}`;
   return getOrSet(key, { ttlSeconds: config.cache.placesTtl, metered: true }, async () => {
+    // Hard monthly cap across the whole Foursquare account - null hides the widget.
+    if (!(await consumeMonthlyBudget("foursquare", config.foursquare.monthlyBudget))) return null;
     const url =
       "https://places-api.foursquare.com/places/search" +
       `?ll=${lat},${lon}&radius=3000&fsq_category_ids=${FOOD_CATEGORY}` +

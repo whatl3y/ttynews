@@ -10,6 +10,8 @@
     "start": "node dist/webServer.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "warm-zips": "ts-node src/tasks/warmZips.ts",
+    "warm-zips:prod": "node dist/tasks/warmZips.js",
     "refresh-zips": "ts-node src/tasks/refreshZips.ts",
     "build-sports-teams": "ts-node src/tasks/buildSportsTeams.ts",
     "download-geolite": "ts-node src/tasks/downloadGeolite.ts",

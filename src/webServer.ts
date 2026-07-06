@@ -13,6 +13,7 @@ import { runWithContext } from "./libs/requestContext";
 import { isBot } from "./libs/botDetect";
 import { tty, ttyBuildBudget, isCliClient, TtyDetection } from "./middleware/tty";
 import { RequestContext } from "./libs/requestContext";
+import { warmZips } from "./tasks/warmZips";
 
 /**
  * `config.server.host` is emitted verbatim as <link rel=canonical> and og:url on
@@ -141,6 +142,25 @@ function validateHost(): void {
     app.listen(config.server.port, () =>
       log.info(`${config.siteName} listening on *:${config.server.port}`),
     );
+
+    // Priority-zip warmer (see tasks/warmZips): keep the hottest zips' caches warm
+    // so crawlers - which run cache-only - still land on rich, indexable pages.
+    // In-process on this single web dyno; self-reschedules so cycles never overlap,
+    // and .unref() so the timer never holds the process open on shutdown. Defaults
+    // ON in production, OFF elsewhere (so it can't spend Foursquare/LLM quota in a
+    // dev run); override explicitly with WARM_ENABLED=true|false.
+    const warmEnabled = process.env.WARM_ENABLED
+      ? process.env.WARM_ENABLED === "true"
+      : process.env.NODE_ENV === "production";
+    if (warmEnabled) {
+      const warmIntervalMs = Math.max(60_000, parseInt(process.env.WARM_INTERVAL_MS || "600000", 10));
+      const warmLoop = () =>
+        warmZips()
+          .catch((err) => log.warn({ err }, "warm cycle errored"))
+          .finally(() => setTimeout(warmLoop, warmIntervalMs).unref());
+      setTimeout(warmLoop, 60_000).unref(); // first cycle ~1 min after boot
+      log.info({ warmIntervalMs }, "priority-zip warmer enabled");
+    }
   } catch (err) {
     console.error(err);
     process.exit(1);

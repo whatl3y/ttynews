@@ -6,6 +6,7 @@ import { assemblePage, localize } from "../libs/sources";
 import { toViewModel, errorViewModel, resolvePrefs } from "../libs/presenter";
 import { readPrefs } from "../libs/prefs";
 import { isCacheOnly } from "../libs/requestContext";
+import { recordZipView } from "../libs/warmSet";
 
 export const zipPage: IRoute = {
   // Regex param: non-5-digit paths fall through to the 404 handler,
@@ -16,6 +17,10 @@ export const zipPage: IRoute = {
     if (!zipInfo) {
       return res.status(404).render("error", errorViewModel(404, req.params.zipCode));
     }
+    // Mark this zip "hot" so the warmer keeps its caches fresh - but only for real
+    // visitors. Crawlers run cache-only and must not steer what we spend budget
+    // warming (fire-and-forget; never blocks the render).
+    if (!isCacheOnly()) void recordZipView(req.params.zipCode);
     const ctx = zipToContext(zipInfo);
     const data = await assemblePage(ctx);
     const prefs = resolvePrefs(ctx.country, readPrefs(req));
