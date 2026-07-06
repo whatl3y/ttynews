@@ -216,6 +216,86 @@ export function nearbyZips(zip: string, limit = 12): NearZip[] {
   return near;
 }
 
+// ── Nearby distinct towns (deduped mesh) ─────────────────────────────────────
+
+export interface NearTown {
+  zip: string; // the town's nearest zip - the internal-link target
+  city: string;
+  state: string;
+  distanceKm: number;
+  bearing: string; // 8-point compass, e.g. "NW"
+}
+
+const nearbyTownsCache = new Map<string, NearTown[]>();
+
+/** 8-point compass bearing from point 1 to point 2 ("N","NE",...). */
+function compassBearing(lat1: number, lon1: number, lat2: number, lon2: number): string {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLon = toRad(lon2 - lon1);
+  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+  const deg = (Math.atan2(y, x) * 180) / Math.PI;
+  const idx = Math.round((((deg % 360) + 360) % 360) / 45) % 8;
+  return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][idx];
+}
+
+/**
+ * The `limit` nearest DISTINCT towns to `zip`, nearest first - deduped by
+ * (city, state) so a dense metro returns real neighboring municipalities
+ * (Hoboken, Jersey City, Brooklyn...) instead of a dozen same-city zips. Each
+ * town links to its own nearest zip; the user's own town is excluded. Over-
+ * collects to ~2×limit distinct towns before ranking so the nearest `limit`
+ * are correct even where the first ring is thin.
+ */
+export function nearbyTowns(zip: string, limit = 8): NearTown[] {
+  const cached = nearbyTownsCache.get(zip);
+  if (cached) return cached;
+  const origin = zips.get(zip);
+  if (!origin) return [];
+
+  const coslat = Math.cos((origin.lat * Math.PI) / 180);
+  const clat = Math.floor(origin.lat);
+  const clon = Math.floor(origin.lon);
+  const originKey = `${normalizeCity(origin.city)}|${origin.state}`;
+
+  // town key -> its nearest zip (representative link + squared planar distance)
+  const best = new Map<string, { z: ZipInfo; d2: number }>();
+  for (let ring = 0; ring <= 8; ring++) {
+    for (let dy = -ring; dy <= ring; dy++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        const cell = grid.get(`${clat + dy}:${clon + dx}`);
+        if (!cell) continue;
+        for (const z of cell) {
+          const key = `${normalizeCity(z.city)}|${z.state}`;
+          if (key === originKey) continue; // skip the user's own town
+          const dlat = z.lat - origin.lat;
+          const dlon = (z.lon - origin.lon) * coslat;
+          const d2 = dlat * dlat + dlon * dlon;
+          const cur = best.get(key);
+          if (!cur || d2 < cur.d2) best.set(key, { z, d2 });
+        }
+      }
+    }
+    if (ring >= 2 && best.size >= limit * 2) break;
+  }
+
+  const near = [...best.values()]
+    .sort((a, b) => a.d2 - b.d2)
+    .slice(0, limit)
+    .map(({ z, d2 }) => ({
+      zip: z.zip,
+      city: z.city,
+      state: z.state,
+      distanceKm: Math.sqrt(d2) * 111.0, // ~111 km per degree of latitude
+      bearing: compassBearing(origin.lat, origin.lon, z.lat, z.lon),
+    }));
+  nearbyTownsCache.set(zip, near);
+  return near;
+}
+
 /**
  * True if `code` is a renderable state hub: we have zips for it AND it's a
  * known US state / DC / PR (excludes territory & military codes like GU/AA/""

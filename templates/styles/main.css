@@ -392,6 +392,13 @@ button:active {
 }
 
 .fc-day {
+  /* Positioning context so each day's .sr-only icon label (position:absolute) is
+     laid out inside this cell instead of against .panel (the next positioned
+     ancestor, OUTSIDE the scroll container). Without it those 1px labels take a
+     static position at the far-right end of the 10-column scroll track and, being
+     resolved against .panel, escape .forecast's overflow clip - stretching the
+     page far past the viewport on mobile (phantom right-scroll / zoom-out). */
+  position: relative;
   scroll-snap-align: start;
   text-align: center;
   padding: 0 1ch var(--sp-1);

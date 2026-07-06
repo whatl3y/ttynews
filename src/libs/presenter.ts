@@ -10,8 +10,14 @@
 import config from "../config";
 import { MASTHEAD, MASTHEAD_404, weatherIcon, aqiGauge, pollenGauge, WeatherIcon } from "./asciiArt";
 import { PageData, PlaceContext, AlertItem } from "./sources/types";
-import { nearbyZips, stateDisplayName, citiesInState } from "./geo/zipDatabase";
-import { getPlace, nearbyPlaces, countryName as geoCountryName, slugify } from "./geo/placeDatabase";
+import { nearbyTowns, stateDisplayName, citiesInState } from "./geo/zipDatabase";
+import {
+  getPlace,
+  nearbyPlaces,
+  usCityPopulationByState,
+  countryName as geoCountryName,
+  slugify,
+} from "./geo/placeDatabase";
 import { getCountryProfile, MeasurementSystem } from "./i18n/countries";
 import {
   UnitPreference,
@@ -190,6 +196,16 @@ function scaledAqiGauge(aqi: number, scale: "us" | "eu"): string {
   return aqiGauge(aqi);
 }
 
+/** Compact population for the nearby-towns mesh: 2600000 -> "2.6M", 60123 -> "60k". */
+function formatPopulation(n: number): string {
+  if (n >= 1_000_000) {
+    const millions = n / 1_000_000;
+    return `${millions >= 10 ? Math.round(millions) : Math.round(millions * 10) / 10}M`;
+  }
+  if (n >= 1_000) return `${Math.round(n / 1000)}k`;
+  return `${n}`;
+}
+
 /**
  * Collapse duplicate alert banners by content (event + severity + headline).
  * MeteoAlarm often issues the same nationwide warning once per region, and any
@@ -257,21 +273,36 @@ export function toViewModel(
       }
     : null;
 
-  // Nearby mesh: US zips (overlay) or global cities.
-  let nearby: Array<{ href: string; label: string; distance: string }>;
+  // Nearby mesh: distinct US towns (deduped, so a metro shows real neighboring
+  // municipalities instead of a dozen same-city zips) or global cities. Each row
+  // carries a compass bearing and, where known, the town's population.
+  let nearby: Array<{
+    href: string;
+    label: string;
+    distance: string;
+    direction: string;
+    population: string | null;
+  }>;
   if (isUS && p.postal) {
-    nearby = nearbyZips(p.postal, 12).map((z) => ({
-      href: `/${z.zip}`,
-      label: `${z.zip} · ${z.city}, ${z.state}`,
-      distance: `${z.distanceMi} MI`,
-    }));
+    nearby = nearbyTowns(p.postal, 8).map((tn) => {
+      const pop = usCityPopulationByState(tn.city, tn.state);
+      return {
+        href: `/${tn.zip}`,
+        label: `${tn.city}, ${tn.state}`,
+        distance: formatDistanceKm(tn.distanceKm, m) || "",
+        direction: tn.bearing,
+        population: pop ? formatPopulation(pop) : null,
+      };
+    });
   } else {
     const origin = getPlace(p.id);
     nearby = origin
-      ? nearbyPlaces(origin, 12).map((n) => ({
+      ? nearbyPlaces(origin, 8).map((n) => ({
           href: n.path,
           label: `${n.name}, ${n.admin1Name}`,
           distance: formatDistanceKm(n.distanceKm, m) || "",
+          direction: n.bearing,
+          population: n.population ? formatPopulation(n.population) : null,
         }))
       : [];
   }

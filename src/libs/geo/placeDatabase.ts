@@ -44,6 +44,9 @@ const cityIndex = new Map<string, string>();
 // (US = zip overlay), but their populations are kept so search can compare a US
 // namesake against the world's most-populous match (Amsterdam MO vs Amsterdam NL).
 const usCityPop = new Map<string, number>();
+// "normalizedName|ST" -> max US-city population. State-scoped so namesakes across
+// states stay distinct (Springfield MO vs MA) - powers the nearby-towns mesh.
+const usCityPopByState = new Map<string, number>();
 // CC -> (admin1Code -> { name, slug, count }) - region hubs + country hubs
 const admin1ByCountry = new Map<string, Map<string, { name: string; slug: string; count: number }>>();
 // CC -> total place count (country hub ordering / sitemap sharding)
@@ -181,6 +184,11 @@ export function loadPlaceDatabase(): void {
     if (country === "US") {
       const nn = normalizeName(name);
       if (population > (usCityPop.get(nn) || 0)) usCityPop.set(nn, population);
+      const st = (c[10] || "").toUpperCase(); // GeoNames admin1 for US = USPS state code
+      if (st) {
+        const sk = `${nn}|${st}`;
+        if (population > (usCityPopByState.get(sk) || 0)) usCityPopByState.set(sk, population);
+      }
       continue;
     }
 
@@ -298,6 +306,19 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** 8-point compass bearing from point 1 to point 2 ("N","NE",...). */
+export function compassBearing(lat1: number, lon1: number, lat2: number, lon2: number): string {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLon = toRad(lon2 - lon1);
+  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+  const deg = (Math.atan2(y, x) * 180) / Math.PI;
+  const idx = Math.round((((deg % 360) + 360) % 360) / 45) % 8;
+  return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][idx];
+}
+
 /**
  * Nearest known place to a coordinate - the universal path when postal/city can't
  * resolve (every IP carries lat/lon even when postal is absent). Walks the grid
@@ -339,6 +360,8 @@ export interface NearPlace {
   country: string;
   path: string;
   distanceKm: number;
+  population: number;
+  bearing: string; // 8-point compass, e.g. "NW"
 }
 
 const nearbyCache = new Map<string, NearPlace[]>();
@@ -371,6 +394,8 @@ export function nearbyPlaces(origin: PlaceInfo, limit = 12): NearPlace[] {
       country: p.country,
       path: p.path,
       distanceKm: Math.round(d),
+      population: p.population,
+      bearing: compassBearing(origin.lat, origin.lon, p.lat, p.lon),
     }));
   nearbyCache.set(origin.id, near);
   return near;
@@ -436,6 +461,12 @@ export function resolveCountryToken(raw: string): string | null {
 /** Max population of a US city with this name - lets search compare US vs world namesakes. */
 export function usCityPopulation(name: string): number {
   return usCityPop.get(normalizeName(name)) || 0;
+}
+
+/** State-scoped US city population (0 if unknown), keyed on the 2-letter state
+ *  code so namesakes across states don't collide. */
+export function usCityPopulationByState(name: string, state: string): number {
+  return usCityPopByState.get(`${normalizeName(name)}|${state.toUpperCase()}`) || 0;
 }
 
 // ── Hubs + sitemap listings ──────────────────────────────────────────────────

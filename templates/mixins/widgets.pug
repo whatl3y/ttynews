@@ -113,12 +113,17 @@ mixin quakesList(quakes)
             +relTime(q.timeIso, q.relTime)
 
 mixin nearbyPanel(nearby)
-  +boxPanel('NEARBY', { id: 'nearby' })
+  +boxPanel('NEARBY TOWNS', { id: 'nearby' })
     ul(role="list")
       each z in nearby
         li.li-row
           a(href=z.href)= z.label
-          .li-sub= z.distance
+          .li-sub
+            | #{z.distance}
+            if z.direction
+              |  · #{z.direction}
+            if z.population
+              |  · pop #{z.population}
 
 mixin sportsList(games)
   +boxPanel('LOCAL SCORES', { id: 'sports' })
