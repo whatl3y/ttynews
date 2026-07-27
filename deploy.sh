@@ -243,7 +243,7 @@ deploy() {
     echo "    GOOGLE_POLLEN_API_KEY=... GOOGLE_CIVIC_API_KEY=... ANTHROPIC_API_KEY=..."
     echo ""
     echo "Health check:"
-    echo "  curl ${APP_URL:-https://$APP_NAME.herokuapp.com}/healthz   # { ok, zips, mmdb, redis }"
+    echo "  curl -L ${APP_URL:-https://$APP_NAME.herokuapp.com}/healthz   # { ok, zips, mmdb, redis }"
     echo ""
     echo "View logs with:"
     echo "  heroku logs --tail -a $APP_NAME"

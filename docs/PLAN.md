@@ -730,15 +730,15 @@ postgres/workers.
   `zipDatabase.test.ts` (parse real US.txt lines).
 - **Manual flows**:
   ```bash
-  curl -s localhost:8000/healthz
-  curl -si localhost:8000/ | grep -i location        # 302 → DEFAULT_ZIP (or geo'd zip)
-  curl -s localhost:8000/37206 | head -50
-  curl -s localhost:8000/api/37206.json | jq .weather.provider   # "open-meteo"
-  curl -si "localhost:8000/?zip=90210" | grep -i location        # 302 /90210
-  curl -si localhost:8000/00000                       # 404 page (valid shape, unknown zip)
-  curl -si localhost:8000/abcde                       # 404 (regex param rejects)
+  curl -sL localhost:8000/healthz
+  curl -si localhost:8000/ | grep -i location        # 302 → DEFAULT_ZIP (or geo'd zip) (no -L - asserts the redirect)
+  curl -sL localhost:8000/37206 | head -50
+  curl -sL localhost:8000/api/37206.json | jq .weather.provider   # "open-meteo"
+  curl -si "localhost:8000/?zip=90210" | grep -i location        # 302 /90210 (no -L - asserts the redirect)
+  curl -siL localhost:8000/00000                      # 404 page (valid shape, unknown zip)
+  curl -siL localhost:8000/abcde                      # 404 (regex param rejects)
   redis-cli keys 'wx:v1:*'
-  time curl -s localhost:8000/api/37206.json >/dev/null   # warm hit: ms
+  time curl -sL localhost:8000/api/37206.json >/dev/null   # warm hit: ms
   ```
 - **Failure drills**: stop Redis (page renders, slower); unset ANTHROPIC_API_KEY (no summary, no
   error); block api.open-meteo.com in /etc/hosts (provider flips to "nws").

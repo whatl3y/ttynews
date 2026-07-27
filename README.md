@@ -29,11 +29,11 @@ panels, weather icons and all. `curl` (and wget, HTTPie, xh, PowerShell, …) is
 detected automatically; browsers keep getting HTML at the same URLs.
 
 ```bash
-curl tty.news                      # your town (IP-geolocated), zero flags
-curl tty.news/90210                # any US zip
-curl tty.news/gb/england/london    # any city worldwide
-curl 'tty.news/?q=paris, france'   # search - renders the match in place (no -L needed)
-curl tty.news/us                   # browse: state → city directories
+curl -L tty.news                      # your town (IP-geolocated)
+curl -L tty.news/90210                # any US zip
+curl -L tty.news/gb/england/london    # any city worldwide
+curl -L 'tty.news/?q=paris, france'   # search - renders the match in place
+curl -L tty.news/us                   # browse: state → city directories
 ```
 
 (Substitute `localhost:8000` when running locally. On Windows, use `curl.exe` —
@@ -55,14 +55,14 @@ response object instead of the page.)
 Handy combos:
 
 ```bash
-curl 'tty.news/90210?w=120&links'        # wide + clickable headlines
-curl -s 'tty.news/10001' | less -R       # page through it, colors intact
-watch -n 300 -c 'curl -s tty.news/60601' # a live dashboard in a spare terminal
-curl 'tty.news/jp/tokyo/tokyo?lang=en'   # Tokyo, chrome + bulletin in English
-curl 'tty.news/90210?T&ascii'            # maximum-compatibility plain text
+curl -L 'tty.news/90210?w=120&links'       # wide + clickable headlines
+curl -sL 'tty.news/10001' | less -R        # page through it, colors intact
+watch -n 300 -c 'curl -sL tty.news/60601'  # a live dashboard in a spare terminal
+curl -L 'tty.news/jp/tokyo/tokyo?lang=en'  # Tokyo, chrome + bulletin in English
+curl -L 'tty.news/90210?T&ascii'           # maximum-compatibility plain text
 ```
 
-If auto-detection misses your client, `curl -H 'Accept: text/plain' …` or
+If auto-detection misses your client, `curl -L -H 'Accept: text/plain' …` or
 `?tty=1` always works; `?tty=0` gets you the HTML from a terminal client.
 
 ## How it works
@@ -203,13 +203,13 @@ All are free. Add each to `.env` (see `.env.example`) and restart. Step-by-step:
 
 ```bash
 pnpm test                                         # i18n, place-db, news-ranker, tty-renderer unit + integration tests
-curl -s localhost:8000/healthz
-curl -s "localhost:8000/90210"                                    # terminal (ANSI) rendering - curl is auto-detected
-curl -si "localhost:8000/90210?tty=0" | grep -i "glance-temp"     # forced HTML → US °F
-curl -si "localhost:8000/gb/england/london?tty=0" | grep -iE "og:locale|glance-temp"   # UK → en_GB, °C
-curl -si -A "Mozilla/5.0" "localhost:8000/?q=Tokyo" | grep -i location   # browser UA → 302 /jp/tokyo/tokyo
-curl -s "localhost:8000/90210?units=metric&T" | grep "°C"         # terminal units override
-curl -s localhost:8000/api/90210.json | jq .weather.provider
+curl -sL localhost:8000/healthz
+curl -sL "localhost:8000/90210"                                   # terminal (ANSI) rendering - curl is auto-detected
+curl -siL "localhost:8000/90210?tty=0" | grep -i "glance-temp"    # forced HTML → US °F
+curl -siL "localhost:8000/gb/england/london?tty=0" | grep -iE "og:locale|glance-temp"   # UK → en_GB, °C
+curl -si -A "Mozilla/5.0" "localhost:8000/?q=Tokyo" | grep -i location   # browser UA → 302 /jp/tokyo/tokyo (no -L - asserts the redirect)
+curl -sL "localhost:8000/90210?units=metric&T" | grep "°C"        # terminal units override
+curl -sL localhost:8000/api/90210.json | jq .weather.provider
 ```
 
 ## Deploy to Heroku
